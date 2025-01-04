@@ -17,6 +17,9 @@ cdbgo is a pure Go implementation of a **reader** of the CDB format. It provides
 - Thread-safe concurrent access
 - Iterator support for full database scanning
 
+## Requirements
+ - Go 1.22 or later
+
 ## Installation
 
 ```bash
