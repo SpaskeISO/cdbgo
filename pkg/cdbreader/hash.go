@@ -1,4 +1,4 @@
-package cdbgo
+package cdbreader
 
 func hash(key []byte) uint32 {
 	h := uint32(5381)

@@ -1,4 +1,4 @@
-package cdbgo
+package cdbreader
 
 import "testing"
 
