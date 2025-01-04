@@ -12,7 +12,7 @@ CDB (Constant Database) is a fast, reliable, and simple package designed by Dani
 
 ## About cdbgo
 
-cdbgo is a pure Go implementation of a **reader** of the CDB format. It provides:
+cdbgo is pure Go implementation of a **reader** of the CDB format. It provides:
 - Reading CDB files
 - Thread-safe concurrent access
 - Iterator support for full database scanning
@@ -32,12 +32,12 @@ package main
 
 import (
     "fmt"
-    "github.com/SpaskeISO/cdbgo"
+    "github.com/SpaskeISO/cdbgo/pkg/cdbreader"
 )
 
 func main() {
     // Open CDB file
-    db, err := cdbgo.Open("data.cdb")
+    db, err := cdbreader.Open("data.cdb")
     if err != nil {
         panic(err)
     }
