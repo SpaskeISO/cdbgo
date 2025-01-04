@@ -25,7 +25,16 @@ func Open(filepath string) (*CDB, error) {
 		return nil, err
 	}
 
-	cdb := &CDB{file: file}
+	fileInfo, err := file.Stat()
+	if err != nil {
+		fileCloseErr := file.Close()
+		if fileCloseErr != nil {
+			return nil, fileCloseErr
+		}
+		return nil, err
+	}
+
+	cdb := &CDB{file: file, endPosition: uint32(fileInfo.Size())}
 
 	for i := 0; i < 256; i++ {
 		var position uint32
