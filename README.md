@@ -1,21 +1,21 @@
 # cdbgo
-A Go library that allows you to read data from Constant Database (CDB) file
 
-## What is CDB?
+A Go implementation of DJB's Constant Database (CDB) format, aiming to reimplement TinyCDB functionality in pure Go.
 
-CDB (Constant Database) is a fast, reliable, and simple package designed by Daniel J. Bernstein for creating and reading constant key/value databases. Its main features are:
+## Current Features
+- Thread-safe CDB file reading
+- Fast lookups with O(1) complexity
+- Full database iteration support
 
-- Fast lookups: Only two disk accesses per lookup
-- Low overhead: Keys and values are stored efficiently
-- No crash recovery needed: Reader processes are never corrupted by writer processes
-- Atomic updates: Database replacement is atomic
-
-## About cdbgo
-
-cdbgo is pure Go implementation of a **reader** of the CDB format. It provides:
-- Reading CDB files
-- Thread-safe concurrent access
-- Iterator support for full database scanning
+## Roadmap
+- [x] CDB Reader implementation (v1.0.0)
+- [ ] CDB Writer implementation
+- [ ] Full TinyCDB feature parity:
+  - [ ] Database creation
+  - [ ] Record insertion
+  - [ ] Atomic updates
+  - [ ] Command-line tools
+  - [ ] Hash table optimization
 
 ## Requirements
  - Go 1.22 or later
@@ -27,6 +27,7 @@ go get github.com/SpaskeISO/cdbgo
 ```
 
 ## Usage
+### cdbreader
 ```go
 package main
 
@@ -67,6 +68,3 @@ func main() {
     }
 }
 ```
-
-## Thread Safety
-All operations are thread-safe and can be used concurrently from multiple goroutines.
