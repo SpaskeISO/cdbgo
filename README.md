@@ -32,7 +32,7 @@ package main
 
 import (
     "fmt"
-    "github.com/yourusername/cdbgo"
+    "github.com/SpaskeISO/cdbgo"
 )
 
 func main() {
