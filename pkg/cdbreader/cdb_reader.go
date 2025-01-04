@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-type CDB struct {
+type CDBReader struct {
 	file        *os.File
 	mutex       sync.Mutex
 	tables      [256]table
@@ -19,7 +19,7 @@ type table struct {
 	slots    uint32
 }
 
-func Open(filepath string) (*CDB, error) {
+func Open(filepath string) (*CDBReader, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func Open(filepath string) (*CDB, error) {
 		return nil, err
 	}
 
-	cdb := &CDB{file: file, endPosition: uint32(fileInfo.Size())}
+	cdb := &CDBReader{file: file, endPosition: uint32(fileInfo.Size())}
 
 	for i := 0; i < 256; i++ {
 		var position uint32
@@ -54,11 +54,11 @@ func Open(filepath string) (*CDB, error) {
 	return cdb, nil
 }
 
-func (cdb *CDB) Close() error {
+func (cdb *CDBReader) Close() error {
 	return cdb.file.Close()
 }
 
-func (cdb *CDB) Get(key []byte) ([]byte, error) {
+func (cdb *CDBReader) Get(key []byte) ([]byte, error) {
 	cdb.mutex.Lock()
 	defer cdb.mutex.Unlock()
 	hashedKey := hash(key)

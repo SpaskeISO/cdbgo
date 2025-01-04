@@ -6,11 +6,11 @@ import (
 )
 
 type Iterator struct {
-	cdb      *CDB
+	cdb      *CDBReader
 	position uint32 // Current position in the file
 }
 
-func (cdb *CDB) Iterator() *Iterator {
+func (cdb *CDBReader) Iterator() *Iterator {
 	return &Iterator{
 		cdb:      cdb,
 		position: 2048, // Skip the header
