@@ -4,10 +4,12 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
+	"sync"
 )
 
 type CDB struct {
 	file        *os.File
+	mutex       sync.Mutex
 	tables      [256]table
 	endPosition uint32
 }
@@ -48,6 +50,8 @@ func (cdb *CDB) Close() error {
 }
 
 func (cdb *CDB) Get(key []byte) ([]byte, error) {
+	cdb.mutex.Lock()
+	defer cdb.mutex.Unlock()
 	hashedKey := hash(key)
 
 	tableNumber := hashedKey & 0xff
