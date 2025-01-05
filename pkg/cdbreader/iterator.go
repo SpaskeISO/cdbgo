@@ -5,11 +5,18 @@ import (
 	"io"
 )
 
+// Iterator provides sequential access to key-value pairs in a CDB file.
+//
+// It maintains its position in the file and reads entries one by one,
+// starting after the hash table (position 2048).
 type Iterator struct {
 	cdb      *CDBReader
 	position uint32 // Current position in the file
 }
 
+// Iterator creates and returns a new Iterator instance for the CDB file.
+//
+// The iterator starts at position 2048, skipping the hash table section.
 func (cdb *CDBReader) Iterator() *Iterator {
 	return &Iterator{
 		cdb:      cdb,
@@ -17,6 +24,15 @@ func (cdb *CDBReader) Iterator() *Iterator {
 	}
 }
 
+// Next reads and returns the next key-value pair from the CDB file.
+//
+// Returns:
+//   - key ([]byte): The key data, or nil if end of file is reached
+//   - value ([]byte): The value data, or nil if end of file is reached
+//   - error: Any error encountered during reading, or nil on success
+//
+// The method is thread-safe as it uses mutex locking.
+// When the end of the file is reached, it returns (nil, nil, nil).
 func (iterator *Iterator) Next() ([]byte, []byte, error) {
 	iterator.cdb.mutex.Lock()
 	defer iterator.cdb.mutex.Unlock()

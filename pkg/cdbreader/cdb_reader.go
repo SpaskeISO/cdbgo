@@ -10,16 +10,21 @@ import (
 
 type CDBReader struct {
 	file        *os.File
-	mutex       sync.Mutex
-	tables      [256]table
-	endPosition uint32
+	mutex       sync.Mutex // Ensures thread-safe file access
+	tables      [256]table // Hash tables for constant-time lookups
+	endPosition uint32     // End position of the file
 }
 
 type table struct {
-	position uint32
-	slots    uint32
+	position uint32 // Starting position of the table in the file
+	slots    uint32 // Number of slots in the table
 }
 
+// Open creates a new CDBReader for the specified file path.
+//
+// It reads and caches the hash table information for subsequent lookups.
+//
+// Returns an error if the file cannot be opened or read.
 func Open(filepath string) (*CDBReader, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
@@ -56,14 +61,20 @@ func Open(filepath string) (*CDBReader, error) {
 	return cdb, nil
 }
 
+// Close releases the underlying file handle.
+// Should be called when done with the CDB reader.
 func (cdb *CDBReader) Close() error {
 	return cdb.file.Close()
 }
 
-// Get retrieves a value from the CDB file for the given key. It returns the value as a byte slice
-// if found, or (nil, nil) if the key doesn't exist. Returns (nil, error) if an error occurs during reading.
+// Get retrieves a value from the CDB file for the given key.
 //
-// This function is thread-safe as it uses a mutex to synchronize access to the file.
+// Returns:
+//   - value ([]byte): The value associated with the key
+//   - error: Any error encountered during reading
+//
+// Returns (nil, nil) if the key doesn't exist.
+// This method is thread-safe through mutex locking.
 func (cdb *CDBReader) Get(key []byte) ([]byte, error) {
 	cdb.mutex.Lock()
 	defer cdb.mutex.Unlock()
