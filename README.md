@@ -23,7 +23,7 @@ A Go implementation of DJB's Constant Database (CDB) format, aiming to reimpleme
 ## Installation
 
 ```bash
-go get github.com/SpaskeISO/cdbgo
+go get github.com/SpaskeISO/cdbgo@latest
 ```
 
 ## Usage
