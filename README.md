@@ -15,7 +15,6 @@ A Go implementation of DJB's Constant Database (CDB) format, aiming to reimpleme
   - [ ] Record insertion
   - [ ] Atomic updates
   - [ ] Command-line tools
-  - [ ] Hash table optimization
 
 ## Requirements
  - Go 1.22 or later
