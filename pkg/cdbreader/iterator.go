@@ -3,6 +3,7 @@ package cdbreader
 import (
 	"encoding/binary"
 	"io"
+	"sync"
 )
 
 // Iterator provides sequential access to key-value pairs in a CDB file.
@@ -11,6 +12,7 @@ import (
 // starting after the hash table (position 2048).
 type Iterator struct {
 	cdb      *CDBReader
+	mutex    sync.Mutex
 	position uint32 // Current position in the file
 }
 
@@ -34,8 +36,8 @@ func (cdb *CDBReader) Iterator() *Iterator {
 // The method is thread-safe as it uses mutex locking.
 // When the end of the file is reached, it returns (nil, nil, nil).
 func (iterator *Iterator) Next() ([]byte, []byte, error) {
-	iterator.cdb.mutex.Lock()
-	defer iterator.cdb.mutex.Unlock()
+	iterator.mutex.Lock()
+	defer iterator.mutex.Unlock()
 
 	if iterator.position > iterator.cdb.endPosition {
 		return nil, nil, nil

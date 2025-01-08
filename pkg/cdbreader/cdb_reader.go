@@ -5,12 +5,10 @@ import (
 	"encoding/binary"
 	"io"
 	"os"
-	"sync"
 )
 
 type CDBReader struct {
 	file        *os.File
-	mutex       sync.Mutex // Ensures thread-safe file access
 	tables      [256]table // Hash tables for constant-time lookups
 	endPosition uint32     // End position of the file
 }
@@ -76,8 +74,6 @@ func (cdb *CDBReader) Close() error {
 // Returns (nil, nil) if the key doesn't exist.
 // This method is thread-safe through mutex locking.
 func (cdb *CDBReader) Get(key []byte) ([]byte, error) {
-	cdb.mutex.Lock()
-	defer cdb.mutex.Unlock()
 	hashedKey := hash(key)
 
 	// Calculate table number
