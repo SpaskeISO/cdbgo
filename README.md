@@ -38,9 +38,10 @@ go install github.com/SpaskeISO/cdbgo/cmd/cdb@latest
 # Install the 64-bit binary
 go install github.com/SpaskeISO/cdbgo/cmd/cdb64@latest
 
-# Manually Build the CLI tools
-go build -o ./bin/cdb ./cmd/cdb/
-go build -o ./bin/cdb64 ./cmd/cdb64/
+# Or build from source using Makefile
+make all              # Build for Linux, Windows, and macOS
+make windows          # Build for Windows only
+make help             # See all available targets
 ```
 
 ## Library Usage
