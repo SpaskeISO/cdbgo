@@ -1,24 +1,40 @@
 # cdbgo
 
-A complete implementation of the Constant DataBase (CDB) format in Go, including both a library for programmatic access and a full-featured command-line tool.
+A complete implementation of the Constant DataBase (CDB) format in Go, including both 32-bit and 64-bit versions with libraries and full-featured command-line tools.
 
 ## Features
 
-- **Read-only Library**: Simple API for reading CDB files from Go code
-- **CLI Tool**: Complete implementation with all modes (query, dump, list, create, stats)
-- **Format Compatibility**: Supports both native CDB format and map format
-- **Duplicate Handling**: Multiple strategies for handling duplicate keys during creation
-- **Performance**: Efficient hash-based lookups with minimal overhead
-- **Testing**: Comprehensive unit tests for core functionality
+- **32-bit CDB (cdb)**: Classic implementation compatible with DJB's original format
+  - 256 hash tables, 2KB header
+  - 4GB maximum file size
+  - Standard `cdb` package and CLI tool
+  
+- **64-bit CDB (cdb64)**: Extended implementation for large-scale databases
+  - 1024 hash tables, 16KB header
+  - Exabyte-scale file support
+  - 64-bit hash function for better collision resistance
+  - Separate `cdb64` package and CLI tool
+  
+- **Common Features**:
+  - Simple API for reading and writing databases
+  - Complete CLI tools with all modes (query, dump, list, create, stats)
+  - Native CDB format and map format support
+  - Multiple duplicate key handling strategies
+  - Efficient hash-based lookups with minimal overhead
+  - Comprehensive unit tests
 
 ## Installation
 
 ```bash
-# Install the library
+# Install the 32-bit library
 go get github.com/SpaskeISO/cdbgo/cdb
 
-# Build the CLI tool
-go build -o cdb ./cmd/cdb/
+# Install the 64-bit library
+go get github.com/SpaskeISO/cdbgo/cdb/cdb64
+
+# Build the CLI tools
+go build -o ./bin/cdb ./cmd/cdb/
+go build -o ./bin/cdb64 ./cmd/cdb64/
 ```
 
 ## Library Usage
@@ -322,12 +338,121 @@ defer cdb.Close(db)
 value, _ := db.Get([]byte("key"))
 ```
 
-## Testing
+## CDB64 - 64-bit Version
 
-Run the test suite:
+The `cdb64` package provides a 64-bit implementation of CDB for large-scale databases.
+
+### Key Differences from 32-bit CDB
+
+- **File Format**: 64-bit offsets and lengths throughout
+- **Header**: 16 KB (1024 tables × 16 bytes per table pointer)
+- **Hash Tables**: 1024 tables (vs 256 in 32-bit)
+- **Hash Function**: 64-bit DJB hash for better collision resistance
+- **Capacity**: Supports exabyte-scale files vs 4GB limit in 32-bit
+- **No Compatibility**: Cannot read/write 32-bit CDB files
+
+### CDB64 Library Usage
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/SpaskeISO/cdbgo/cdb/cdb64"
+)
+
+func main() {
+    // Create a database
+    writer, err := cdb64.Create("data.cdb64", "")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    if err := writer.PutString("key", "value"); err != nil {
+        writer.Abort()
+        log.Fatal(err)
+    }
+    
+    if err := writer.Finalize(); err != nil {
+        log.Fatal(err)
+    }
+    
+    // Open and read
+    db, err := cdb64.Open("data.cdb64")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer cdb64.Close(db)
+    
+    value, err := db.Get([]byte("key"))
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Value: %s\n", value)
+    
+    // Iterate through all records
+    it := cdb64.NewIterator(db)
+    for {
+        key, value, ok := it.Next()
+        if !ok {
+            break
+        }
+        fmt.Printf("%s -> %s\n", key, value)
+    }
+}
+```
+
+### CDB64 CLI Tool
+
+The `cdb64` CLI tool has the same interface as `cdb`:
 
 ```bash
+# Create a database
+echo "+3,5:key->value" | cdb64 -c data.cdb64
+
+# Query
+cdb64 -q data.cdb64 key
+
+# Dump
+cdb64 -d data.cdb64
+
+# List keys
+cdb64 -l data.cdb64
+
+# Statistics
+cdb64 -s data.cdb64
+```
+
+All flags and modes work identically to the 32-bit version.
+
+### When to Use CDB64
+
+Use **cdb64** when:
+- Your database will exceed 4GB
+- You need more than 256 hash tables for better distribution
+- You're working with billions or trillions of records
+- You want better collision resistance with 64-bit hashing
+
+Use **cdb** (32-bit) when:
+- You need compatibility with existing CDB tools
+- Your database is under 4GB
+- You want minimal overhead (2KB header vs 16KB)
+
+## Testing
+
+Run the test suites:
+
+```bash
+# Test 32-bit CDB
 go test ./cdb/... -v
+
+# Test 64-bit CDB
+go test ./cdb/cdb64/... -v
+
+# Test all
+go test ./... -v
 ```
 
 ## License

@@ -1,4 +1,5 @@
 # Binaries
+bin/
 cdb-test
 cdb-tool
 *.exe
@@ -9,10 +10,13 @@ cdb-tool
 
 # Test files
 *.cdb
+*.cdb64
 *.cdb.tmp
+*.cdb64.tmp
 test_*
 *_output.txt
 example.cdb
+example64.cdb64
 
 # Go build artifacts
 *.test
