@@ -41,7 +41,11 @@ func TestBasicGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	// Test existing keys
 	value, err := db.Get([]byte("key1"))
@@ -77,10 +81,18 @@ func TestGetAll(t *testing.T) {
 	}
 	
 	// Add multiple values for same key
-	writer.PutString("key", "value1")
-	writer.PutString("key", "value2")
-	writer.PutString("key", "value3")
-	writer.PutString("other", "othervalue")
+	if err := writer.PutString("key", "value1"); err != nil {
+		t.Fatalf("Failed to put value1: %v", err)
+	}
+	if err := writer.PutString("key", "value2"); err != nil {
+		t.Fatalf("Failed to put value2: %v", err)
+	}
+	if err := writer.PutString("key", "value3"); err != nil {
+		t.Fatalf("Failed to put value3: %v", err)
+	}
+	if err := writer.PutString("other", "othervalue"); err != nil {
+		t.Fatalf("Failed to put othervalue: %v", err)
+	}
 	
 	if err := writer.Finalize(); err != nil {
 		t.Fatalf("Failed to finalize: %v", err)
@@ -90,7 +102,11 @@ func TestGetAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	values, err := db.GetAll([]byte("key"))
 	if err != nil {
@@ -122,9 +138,15 @@ func TestGetN(t *testing.T) {
 	}
 	
 	// Add multiple values for same key
-	writer.PutString("key", "first")
-	writer.PutString("key", "second")
-	writer.PutString("key", "third")
+	if err := writer.PutString("key", "first"); err != nil {
+		t.Fatalf("Failed to put first: %v", err)
+	}
+	if err := writer.PutString("key", "second"); err != nil {
+		t.Fatalf("Failed to put second: %v", err)
+	}
+	if err := writer.PutString("key", "third"); err != nil {
+		t.Fatalf("Failed to put third: %v", err)
+	}
 	
 	if err := writer.Finalize(); err != nil {
 		t.Fatalf("Failed to finalize: %v", err)
@@ -134,7 +156,11 @@ func TestGetN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	// Get specific records
 	value, err := db.GetN([]byte("key"), 1)
@@ -177,7 +203,11 @@ func TestEmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	_, err = db.Get([]byte("anykey"))
 	if err != ErrNotFound {
@@ -196,7 +226,11 @@ func TestIterator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open database: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	it := NewIterator(db)
 	count := 0

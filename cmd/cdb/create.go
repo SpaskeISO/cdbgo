@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/SpaskeISO/cdbgo/cdb"
@@ -34,14 +35,18 @@ func createMode(cfg *config) error {
 	if len(cfg.infiles) == 0 {
 		// Read from stdin
 		if err := readInput(writer, os.Stdin, cfg.mapFormat); err != nil {
-			writer.Abort()
+			if abortErr := writer.Abort(); abortErr != nil {
+				return fmt.Errorf("input error: %w; abort failed: %v", err, abortErr)
+			}
 			return err
 		}
 	} else {
 		// Read from files
 		for _, filename := range cfg.infiles {
 			if err := readFile(writer, filename, cfg.mapFormat); err != nil {
-				writer.Abort()
+				if abortErr := writer.Abort(); abortErr != nil {
+					return fmt.Errorf("input error: %w; abort failed: %v", err, abortErr)
+				}
 				return err
 			}
 		}
@@ -104,7 +109,11 @@ func readFile(writer *cdb.Writer, filename string, mapFormat bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to open %s: %w", filename, err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			slog.Warn("failed to close input file", "filename", filename, "error", err)
+		}
+	}()
 	
 	return readInput(writer, file, mapFormat)
 }

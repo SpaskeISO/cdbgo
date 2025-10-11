@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/SpaskeISO/cdbgo/cdb"
@@ -15,7 +15,8 @@ func main() {
 	fmt.Println("Creating CDB database...")
 	writer, err := cdb.Create(dbPath, "")
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to create database", "error", err)
+		os.Exit(1)
 	}
 	
 	// Add some sample data
@@ -29,14 +30,18 @@ func main() {
 	
 	for key, value := range data {
 		if err := writer.PutString(key, value); err != nil {
-			writer.Abort()
-			log.Fatal(err)
+			if abortErr := writer.Abort(); abortErr != nil {
+				slog.Warn("failed to abort after error", "abort_error", abortErr)
+			}
+			slog.Error("failed to put record", "key", key, "error", err)
+			os.Exit(1)
 		}
 		fmt.Printf("  Added: %s -> %s\n", key, value)
 	}
 	
 	if err := writer.Finalize(); err != nil {
-		log.Fatal(err)
+		slog.Error("failed to finalize database", "error", err)
+		os.Exit(1)
 	}
 	fmt.Println("Database created successfully!")
 	
@@ -44,9 +49,14 @@ func main() {
 	fmt.Println("\nReading from database...")
 	db, err := cdb.Open(dbPath)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
 	}
-	defer cdb.Close(db)
+	defer func() {
+		if err := cdb.Close(db); err != nil {
+			slog.Warn("failed to close database", "error", err)
+		}
+	}()
 	
 	// Query specific keys
 	keys := []string{"name", "age", "city"}
@@ -56,7 +66,8 @@ func main() {
 			if err == cdb.ErrNotFound {
 				fmt.Printf("  %s: not found\n", key)
 			} else {
-				log.Fatal(err)
+				slog.Error("failed to get key", "key", key, "error", err)
+				os.Exit(1)
 			}
 			continue
 		}
@@ -77,13 +88,16 @@ func main() {
 	}
 	
 	if err := it.Err(); err != nil {
-		log.Fatal(err)
+		slog.Error("iterator error", "error", err)
+		os.Exit(1)
 	}
 	
 	fmt.Printf("\nTotal records: %d\n", count)
 	
 	// Clean up
-	os.Remove(dbPath)
+	if err := os.Remove(dbPath); err != nil {
+		slog.Warn("failed to remove example database", "error", err)
+	}
 	fmt.Println("\nExample completed!")
 }
 

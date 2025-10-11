@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 
 	"github.com/SpaskeISO/cdbgo/cdb"
@@ -39,7 +40,11 @@ func statsMode(cfg *config) error {
 	if err != nil {
 		return err
 	}
-	defer cdb.Close(db)
+	defer func() {
+		if err := cdb.Close(db); err != nil {
+			slog.Warn("failed to close database", "error", err)
+		}
+	}()
 	
 	st := &stats{
 		minKeyLen:    math.MaxInt32,

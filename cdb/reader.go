@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 )
 
@@ -45,12 +46,16 @@ func Open(filename string) (*CDB, error) {
 	// Get file size
 	info, err := file.Stat()
 	if err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			slog.Warn("failed to close file after stat error", "error", closeErr)
+		}
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 
 	if info.Size() < HeaderSize {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			slog.Warn("failed to close file", "error", closeErr)
+		}
 		return nil, ErrInvalidFormat
 	}
 
@@ -62,7 +67,9 @@ func Open(filename string) (*CDB, error) {
 	// Read hash table pointers from header
 	header := make([]byte, HeaderSize)
 	if _, err := io.ReadFull(file, header); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			slog.Warn("failed to close file after read error", "error", closeErr)
+		}
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 

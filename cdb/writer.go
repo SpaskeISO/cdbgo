@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 )
 
@@ -81,9 +82,13 @@ func Create(finalFile, tempFile string) (*Writer, error) {
 	// Write placeholder header
 	header := make([]byte, HeaderSize)
 	if _, err := file.Write(header); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			slog.Warn("failed to close file after write error", "error", closeErr)
+		}
 		if tempFile != "" {
-			os.Remove(tempFile)
+			if removeErr := os.Remove(tempFile); removeErr != nil {
+				slog.Warn("failed to remove temp file", "file", tempFile, "error", removeErr)
+			}
 		}
 		return nil, fmt.Errorf("failed to write header: %w", err)
 	}
@@ -240,13 +245,24 @@ func (w *Writer) Finalize() error {
 
 // Abort cancels the database creation and removes the temp file
 func (w *Writer) Abort() error {
+	var firstErr error
+	
 	if w.file != nil {
-		w.file.Close()
+		if err := w.file.Close(); err != nil {
+			firstErr = fmt.Errorf("failed to close file: %w", err)
+		}
 	}
+	
 	if w.tempFile != "" {
-		return os.Remove(w.tempFile)
+		if err := os.Remove(w.tempFile); err != nil {
+			if firstErr == nil {
+				return fmt.Errorf("failed to remove temp file: %w", err)
+			}
+			slog.Warn("failed to remove temp file after close error", "error", err)
+		}
 	}
-	return nil
+	
+	return firstErr
 }
 
 // SetPermissions sets the file permissions (must be called before Finalize)

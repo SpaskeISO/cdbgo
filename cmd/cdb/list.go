@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/SpaskeISO/cdbgo/cdb"
@@ -16,7 +17,11 @@ func listMode(cfg *config) error {
 	if err != nil {
 		return err
 	}
-	defer cdb.Close(db)
+	defer func() {
+		if err := cdb.Close(db); err != nil {
+			slog.Warn("failed to close database", "error", err)
+		}
+	}()
 	
 	it := cdb.NewIterator(db)
 	

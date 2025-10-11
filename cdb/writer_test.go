@@ -28,7 +28,11 @@ func TestBasicPut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	value, err := db.Get([]byte("key"))
 	if err != nil {
@@ -88,7 +92,11 @@ func TestDuplicateModeUnique(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	values, err := db.GetAll([]byte("key"))
 	if err != nil {
@@ -132,7 +140,11 @@ func TestDuplicateModeAllow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	values, err := db.GetAll([]byte("key"))
 	if err != nil {
@@ -162,7 +174,11 @@ func TestEmptyDatabaseCreation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	// Verify empty database returns not found
 	_, err = db.Get([]byte("anykey"))
@@ -194,7 +210,11 @@ func TestInPlaceCreation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open: %v", err)
 	}
-	defer Close(db)
+	defer func() {
+		if err := Close(db); err != nil {
+			t.Errorf("Failed to close database: %v", err)
+		}
+	}()
 	
 	value, err := db.Get([]byte("key"))
 	if err != nil {

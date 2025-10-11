@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/SpaskeISO/cdbgo/cdb"
@@ -16,7 +17,11 @@ func queryMode(cfg *config) error {
 	if err != nil {
 		return err
 	}
-	defer cdb.Close(db)
+	defer func() {
+		if err := cdb.Close(db); err != nil {
+			slog.Warn("failed to close database", "error", err)
+		}
+	}()
 	
 	key := []byte(cfg.key)
 	
@@ -46,9 +51,13 @@ func queryMode(cfg *config) error {
 	
 	// Output values
 	for _, value := range values {
-		os.Stdout.Write(value)
+		if _, err := os.Stdout.Write(value); err != nil {
+			return fmt.Errorf("failed to write output: %w", err)
+		}
 		if cfg.mapFormat {
-			os.Stdout.Write([]byte{'\n'})
+			if _, err := os.Stdout.Write([]byte{'\n'}); err != nil {
+				return fmt.Errorf("failed to write newline: %w", err)
+			}
 		}
 	}
 	
