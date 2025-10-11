@@ -11,14 +11,14 @@ import (
 func main() {
 	// Create a sample database
 	dbPath := "example.cdb"
-	
+
 	fmt.Println("Creating CDB database...")
 	writer, err := cdb.Create(dbPath, "")
 	if err != nil {
 		slog.Error("failed to create database", "error", err)
 		os.Exit(1)
 	}
-	
+
 	// Add some sample data
 	data := map[string]string{
 		"name":    "Alice",
@@ -27,7 +27,7 @@ func main() {
 		"country": "USA",
 		"job":     "Engineer",
 	}
-	
+
 	for key, value := range data {
 		if err := writer.PutString(key, value); err != nil {
 			if abortErr := writer.Abort(); abortErr != nil {
@@ -38,13 +38,13 @@ func main() {
 		}
 		fmt.Printf("  Added: %s -> %s\n", key, value)
 	}
-	
+
 	if err := writer.Finalize(); err != nil {
 		slog.Error("failed to finalize database", "error", err)
 		os.Exit(1)
 	}
 	fmt.Println("Database created successfully!")
-	
+
 	// Open and read from the database
 	fmt.Println("\nReading from database...")
 	db, err := cdb.Open(dbPath)
@@ -57,7 +57,7 @@ func main() {
 			slog.Warn("failed to close database", "error", err)
 		}
 	}()
-	
+
 	// Query specific keys
 	keys := []string{"name", "age", "city"}
 	for _, key := range keys {
@@ -73,7 +73,7 @@ func main() {
 		}
 		fmt.Printf("  %s: %s\n", key, value)
 	}
-	
+
 	// Iterate through all records
 	fmt.Println("\nAll records in database:")
 	it := cdb.NewIterator(db)
@@ -86,18 +86,17 @@ func main() {
 		count++
 		fmt.Printf("  %s: %s\n", key, value)
 	}
-	
+
 	if err := it.Err(); err != nil {
 		slog.Error("iterator error", "error", err)
 		os.Exit(1)
 	}
-	
+
 	fmt.Printf("\nTotal records: %d\n", count)
-	
+
 	// Clean up
 	if err := os.Remove(dbPath); err != nil {
 		slog.Warn("failed to remove example database", "error", err)
 	}
 	fmt.Println("\nExample completed!")
 }
-

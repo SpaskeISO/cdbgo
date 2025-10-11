@@ -15,7 +15,7 @@ func createMode(cfg *config) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Set duplicate handling mode
 	mode := cdb.DuplicateModeAllow
 	if cfg.errDup {
@@ -30,7 +30,7 @@ func createMode(cfg *config) error {
 		mode = cdb.DuplicateModeWarn
 	}
 	writer.SetDuplicateMode(mode)
-	
+
 	// Read input files or stdin
 	if len(cfg.infiles) == 0 {
 		// Read from stdin
@@ -51,12 +51,12 @@ func createMode(cfg *config) error {
 			}
 		}
 	}
-	
+
 	// Finalize database
 	if err := writer.Finalize(); err != nil {
 		return err
 	}
-	
+
 	// Set permissions if specified
 	if cfg.perms != "" {
 		perms, err := parsePerms(cfg.perms)
@@ -67,7 +67,7 @@ func createMode(cfg *config) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -114,7 +114,6 @@ func readFile(writer *cdb.Writer, filename string, mapFormat bool) error {
 			slog.Warn("failed to close input file", "filename", filename, "error", err)
 		}
 	}()
-	
+
 	return readInput(writer, file, mapFormat)
 }
-

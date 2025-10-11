@@ -246,4 +246,3 @@ func (c *CDB) GetAll(key []byte) ([][]byte, error) {
 
 	return results, nil
 }
-

@@ -94,4 +94,3 @@ func (it *Iterator) Reset() {
 	it.pos = HeaderSize
 	it.err = nil
 }
-

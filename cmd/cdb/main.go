@@ -7,23 +7,21 @@ import (
 	"strconv"
 )
 
-const version = "0.80"
-
 type config struct {
 	// Mode flags
-	query   bool
-	dump    bool
-	list    bool
-	create  bool
-	stats   bool
-	help    bool
-	
+	query  bool
+	dump   bool
+	list   bool
+	create bool
+	stats  bool
+	help   bool
+
 	// Common flags
 	mapFormat bool
-	
+
 	// Query flags
 	recno int
-	
+
 	// Create flags
 	tempFile string
 	perms    string
@@ -32,24 +30,24 @@ type config struct {
 	replace  bool
 	unique   bool
 	zeroFill bool
-	
+
 	// Positional arguments
-	dbfile string
-	key    string
+	dbfile  string
+	key     string
 	infiles []string
 }
 
 func main() {
 	cfg := parseFlags()
-	
+
 	if cfg.help {
 		printHelp()
-		os.Exit(0)
+		return
 	}
-	
+
 	var err error
 	exitCode := 0
-	
+
 	if cfg.query {
 		err = queryMode(cfg)
 		if err != nil {
@@ -67,7 +65,7 @@ func main() {
 		printHelp()
 		os.Exit(1)
 	}
-	
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cdb: %v\n", err)
 		os.Exit(exitCode)
@@ -78,7 +76,7 @@ func parseFlags() *config {
 	cfg := &config{
 		recno: -1,
 	}
-	
+
 	// Mode flags
 	flag.BoolVar(&cfg.query, "q", false, "query mode")
 	flag.BoolVar(&cfg.dump, "d", false, "dump mode")
@@ -86,13 +84,13 @@ func parseFlags() *config {
 	flag.BoolVar(&cfg.create, "c", false, "create mode")
 	flag.BoolVar(&cfg.stats, "s", false, "statistics mode")
 	flag.BoolVar(&cfg.help, "h", false, "print help")
-	
+
 	// Common flags
 	flag.BoolVar(&cfg.mapFormat, "m", false, "use map format (not native cdb format)")
-	
+
 	// Query flags
 	flag.IntVar(&cfg.recno, "n", -1, "find and print nth record")
-	
+
 	// Create flags
 	flag.StringVar(&cfg.tempFile, "t", "", "temporary file for creation")
 	flag.StringVar(&cfg.perms, "p", "", "file permissions (octal)")
@@ -101,12 +99,12 @@ func parseFlags() *config {
 	flag.BoolVar(&cfg.replace, "r", false, "replace duplicate keys")
 	flag.BoolVar(&cfg.unique, "u", false, "do not add duplicate keys")
 	flag.BoolVar(&cfg.zeroFill, "0", false, "zero-fill duplicate records")
-	
+
 	flag.Parse()
-	
+
 	// Parse positional arguments
 	args := flag.Args()
-	
+
 	if cfg.query {
 		if len(args) < 2 {
 			fmt.Fprintf(os.Stderr, "cdb: query mode requires dbfile and key\n")
@@ -130,12 +128,12 @@ func parseFlags() *config {
 			cfg.infiles = args[1:]
 		}
 	}
-	
+
 	return cfg
 }
 
 func printHelp() {
-	fmt.Printf("cdb: Constant DataBase (CDB) tool version %s. Usage is:\n", version)
+	fmt.Println("cdb: Constant DataBase (CDB) tool. Usage is:")
 	fmt.Println(" query:  cdb -q [-m] [-n recno|-a] cdbfile key")
 	fmt.Println(" dump:   cdb -d [-m] [cdbfile|-]")
 	fmt.Println(" list:   cdb -l [-m] [cdbfile|-]")
@@ -149,13 +147,12 @@ func parsePerms(permsStr string) (os.FileMode, error) {
 	if permsStr == "" {
 		return 0666, nil
 	}
-	
+
 	// Parse octal
 	perms, err := strconv.ParseUint(permsStr, 8, 32)
 	if err != nil {
 		return 0, fmt.Errorf("invalid permissions: %s", permsStr)
 	}
-	
+
 	return os.FileMode(perms), nil
 }
-

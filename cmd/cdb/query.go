@@ -12,7 +12,7 @@ func queryMode(cfg *config) error {
 	if cfg.dbfile == "-" {
 		return fmt.Errorf("query mode does not support stdin")
 	}
-	
+
 	db, err := cdb.Open(cfg.dbfile)
 	if err != nil {
 		return err
@@ -22,11 +22,11 @@ func queryMode(cfg *config) error {
 			slog.Warn("failed to close database", "error", err)
 		}
 	}()
-	
+
 	key := []byte(cfg.key)
-	
+
 	var values [][]byte
-	
+
 	if cfg.recno > 0 {
 		// Get specific record number
 		value, err := db.GetN(key, cfg.recno)
@@ -48,7 +48,7 @@ func queryMode(cfg *config) error {
 		}
 		values = allValues
 	}
-	
+
 	// Output values
 	for _, value := range values {
 		if _, err := os.Stdout.Write(value); err != nil {
@@ -60,7 +60,6 @@ func queryMode(cfg *config) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
-

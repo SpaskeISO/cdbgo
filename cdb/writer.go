@@ -28,14 +28,14 @@ const (
 
 // Writer is used to create CDB databases
 type Writer struct {
-	file         *os.File
-	tempFile     string
-	finalFile    string
-	pos          uint32
-	entries      []entry
-	duplicates   map[string][]int // map key to entry indices
+	file          *os.File
+	tempFile      string
+	finalFile     string
+	pos           uint32
+	entries       []entry
+	duplicates    map[string][]int // map key to entry indices
 	duplicateMode DuplicateMode
-	warned       map[string]bool
+	warned        map[string]bool
 }
 
 type entry struct {
@@ -69,14 +69,14 @@ func Create(finalFile, tempFile string) (*Writer, error) {
 	}
 
 	w := &Writer{
-		file:         file,
-		tempFile:     tempFile,
-		finalFile:    finalFile,
-		pos:          HeaderSize,
-		entries:      make([]entry, 0),
-		duplicates:   make(map[string][]int),
+		file:          file,
+		tempFile:      tempFile,
+		finalFile:     finalFile,
+		pos:           HeaderSize,
+		entries:       make([]entry, 0),
+		duplicates:    make(map[string][]int),
 		duplicateMode: DuplicateModeAllow,
-		warned:       make(map[string]bool),
+		warned:        make(map[string]bool),
 	}
 
 	// Write placeholder header
@@ -248,13 +248,13 @@ func (w *Writer) Finalize() error {
 // Abort cancels the database creation and removes the temp file
 func (w *Writer) Abort() error {
 	var firstErr error
-	
+
 	if w.file != nil {
 		if err := w.file.Close(); err != nil {
 			firstErr = fmt.Errorf("failed to close file: %w", err)
 		}
 	}
-	
+
 	if w.tempFile != "" {
 		if err := os.Remove(w.tempFile); err != nil {
 			if firstErr == nil {
@@ -263,7 +263,7 @@ func (w *Writer) Abort() error {
 			slog.Warn("failed to remove temp file after close error", "error", err)
 		}
 	}
-	
+
 	return firstErr
 }
 
@@ -466,4 +466,3 @@ func (w *Writer) processMapLine(line []byte) error {
 	value := line[valueStart:]
 	return w.Put(key, value)
 }
-
