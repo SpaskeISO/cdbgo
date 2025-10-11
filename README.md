@@ -297,6 +297,31 @@ CDB provides constant-time lookups using a simple but effective hashing scheme:
 - Linear probing for collision resolution
 - No locks needed (readers don't block creators)
 
+### Atomic Updates
+
+One of CDB's key features is **atomic database replacement** on Unix-like systems:
+
+1. **Writers create a new file** - The database is built in a temporary file
+2. **Atomic rename** - `Finalize()` atomically renames the temp file to replace the old one
+3. **Old readers continue** - Programs with the old database open keep working with the old data
+4. **New readers get new data** - Programs opening after the rename see the new version
+5. **No locks or downtime** - The switch is instantaneous and transparent
+
+This means you can safely update a CDB database while it's being read by other processes. The old file's data remains accessible until all readers close it.
+
+**Example:**
+```go
+// Reader keeps working through the update
+db, _ := cdb.Open("data.cdb")
+defer cdb.Close(db)
+
+// Another process updates the database
+// writer.Finalize() renames atomically
+
+// This reader still sees old data until Close()
+value, _ := db.Get([]byte("key"))
+```
+
 ## Testing
 
 Run the test suite:

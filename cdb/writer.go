@@ -162,7 +162,9 @@ func (w *Writer) Put(key, value []byte) error {
 	return nil
 }
 
-// Finalize completes the database creation by writing hash tables and renaming
+// Finalize completes the database creation by writing hash tables and atomically renaming.
+// The atomic rename ensures that readers with the old file open continue to work,
+// while new opens immediately see the new version. This allows zero-downtime updates.
 func (w *Writer) Finalize() error {
 	// Group entries by hash table
 	tables := make([][]entry, NumTables)
