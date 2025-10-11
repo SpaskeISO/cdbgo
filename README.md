@@ -27,10 +27,10 @@ A complete implementation of the Constant DataBase (CDB) format in Go, including
 
 ```bash
 # Install the 32-bit library
-go get github.com/SpaskeISO/cdbgo/cdb@latest
+go get github.com/SpaskeISO/cdbgo/cdb
 
 # Install the 64-bit library
-go get github.com/SpaskeISO/cdbgo/cdb/cdb64@latest
+go get github.com/SpaskeISO/cdbgo/cdb/cdb64
 
 # Install the 32-bit binary
 go install github.com/SpaskeISO/cdbgo/cmd/cdb@latest
