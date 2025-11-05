@@ -29,7 +29,7 @@ func TestBasicPut(t *testing.T) {
 		t.Fatalf("Failed to open: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -93,7 +93,7 @@ func TestDuplicateModeUnique(t *testing.T) {
 		t.Fatalf("Failed to open: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -141,7 +141,7 @@ func TestDuplicateModeAllow(t *testing.T) {
 		t.Fatalf("Failed to open: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -175,7 +175,7 @@ func TestEmptyDatabaseCreation(t *testing.T) {
 		t.Fatalf("Failed to open: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -211,7 +211,7 @@ func TestInPlaceCreation(t *testing.T) {
 		t.Fatalf("Failed to open: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()

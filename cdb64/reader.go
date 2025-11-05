@@ -83,7 +83,7 @@ func Open(filename string) (*CDB, error) {
 }
 
 // Close closes the CDB64 database
-func Close(c *CDB) error {
+func (c *CDB) Close() error {
 	if c.file != nil {
 		return c.file.Close()
 	}

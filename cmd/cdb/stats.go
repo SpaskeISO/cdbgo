@@ -41,7 +41,7 @@ func statsMode(cfg *config) error {
 		return err
 	}
 	defer func() {
-		if err := cdb.Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			slog.Warn("failed to close database", "error", err)
 		}
 	}()

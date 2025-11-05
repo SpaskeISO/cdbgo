@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/SpaskeISO/cdbgo/cdb/cdb64"
+	"github.com/SpaskeISO/cdbgo/cdb64"
 )
 
 func createMode(cfg *config) error {

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/SpaskeISO/cdbgo/cdb/cdb64"
+	"github.com/SpaskeISO/cdbgo/cdb64"
 )
 
 func listMode(cfg *config) error {
@@ -18,7 +18,7 @@ func listMode(cfg *config) error {
 		return err
 	}
 	defer func() {
-		if err := cdb64.Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			slog.Warn("failed to close database", "error", err)
 		}
 	}()

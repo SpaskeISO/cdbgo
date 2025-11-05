@@ -98,7 +98,7 @@ func BenchmarkRead(b *testing.B) {
 				b.Fatal(err)
 			}
 			defer func() {
-				if err := Close(db); err != nil {
+				if err := db.Close(); err != nil {
 					b.Log(err)
 				}
 			}()
@@ -149,7 +149,7 @@ func BenchmarkReadRandom(b *testing.B) {
 				b.Fatal(err)
 			}
 			defer func() {
-				if err := Close(db); err != nil {
+				if err := db.Close(); err != nil {
 					b.Log(err)
 				}
 			}()
@@ -200,7 +200,7 @@ func BenchmarkIteration(b *testing.B) {
 				b.Fatal(err)
 			}
 			defer func() {
-				if err := Close(db); err != nil {
+				if err := db.Close(); err != nil {
 					b.Log(err)
 				}
 			}()

@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/SpaskeISO/cdbgo/cdb/cdb64"
+	"github.com/SpaskeISO/cdbgo/cdb64"
 )
 
 func main() {
@@ -91,7 +91,7 @@ func readDatabase(path string) error {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer func() {
-		if err := cdb64.Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			log.Printf("Warning: failed to close database: %v", err)
 		}
 	}()
@@ -139,7 +139,7 @@ func iterateDatabase(path string) error {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	defer func() {
-		if err := cdb64.Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			log.Printf("Warning: failed to close database: %v", err)
 		}
 	}()

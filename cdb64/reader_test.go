@@ -42,7 +42,7 @@ func TestBasicGet(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -103,7 +103,7 @@ func TestGetAll(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -157,7 +157,7 @@ func TestGetN(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -204,7 +204,7 @@ func TestEmptyDatabase(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -227,7 +227,7 @@ func TestIterator(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()
@@ -313,7 +313,7 @@ func TestLargeKeys(t *testing.T) {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 	defer func() {
-		if err := Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			t.Errorf("Failed to close database: %v", err)
 		}
 	}()

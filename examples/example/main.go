@@ -53,7 +53,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() {
-		if err := cdb.Close(db); err != nil {
+		if err := db.Close(); err != nil {
 			slog.Warn("failed to close database", "error", err)
 		}
 	}()

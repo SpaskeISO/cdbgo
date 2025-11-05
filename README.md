@@ -8,13 +8,13 @@ A complete implementation of the Constant DataBase (CDB) format in Go, including
   - 256 hash tables, 2KB header
   - 4GB maximum file size
   - Standard `cdb` package and CLI tool
-  
+
 - **64-bit CDB (cdb64)**: Extended implementation for large-scale databases
   - 1024 hash tables, 16KB header
   - Exabyte-scale file support
   - 64-bit hash function for better collision resistance
   - Separate `cdb64` package and CLI tool
-  
+
 - **Common Features**:
   - Simple API for reading and writing databases
   - Complete CLI tools with all modes (query, dump, list, create, stats)
@@ -54,7 +54,7 @@ package main
 import (
     "fmt"
     "log"
-    
+
     "github.com/SpaskeISO/cdbgo/cdb"
 )
 
@@ -64,8 +64,8 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    defer cdb.Close(db)
-    
+    defer db.Close()
+
     // Get a single value
     value, err := db.Get([]byte("mykey"))
     if err != nil {
@@ -76,7 +76,7 @@ func main() {
         }
     }
     fmt.Printf("Value: %s\n", value)
-    
+
     // Get all values for a key (if there are duplicates)
     values, err := db.GetAll([]byte("mykey"))
     if err != nil {
@@ -85,7 +85,7 @@ func main() {
     for i, v := range values {
         fmt.Printf("Value %d: %s\n", i+1, v)
     }
-    
+
     // Get the nth value for a key (1-based)
     value, err = db.GetN([]byte("mykey"), 2)
     if err != nil {
@@ -103,7 +103,7 @@ package main
 import (
     "fmt"
     "log"
-    
+
     "github.com/SpaskeISO/cdbgo/cdb"
 )
 
@@ -112,8 +112,8 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    defer cdb.Close(db)
-    
+    defer db.Close()
+
     it := cdb.NewIterator(db)
     for {
         key, value, ok := it.Next()
@@ -122,7 +122,7 @@ func main() {
         }
         fmt.Printf("%s -> %s\n", key, value)
     }
-    
+
     if err := it.Err(); err != nil {
         log.Fatal(err)
     }
@@ -138,7 +138,7 @@ package main
 
 import (
     "log"
-    
+
     "github.com/SpaskeISO/cdbgo/cdb"
 )
 
@@ -148,18 +148,18 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    
+
     // Add records
     if err := writer.PutString("key1", "value1"); err != nil {
         writer.Abort()
         log.Fatal(err)
     }
-    
+
     if err := writer.PutString("key2", "value2"); err != nil {
         writer.Abort()
         log.Fatal(err)
     }
-    
+
     // Finalize the database
     if err := writer.Finalize(); err != nil {
         log.Fatal(err)
@@ -336,7 +336,7 @@ This means you can safely update a CDB database while it's being read by other p
 ```go
 // Reader keeps working through the update
 db, _ := cdb.Open("data.cdb")
-defer cdb.Close(db)
+defer db.Close()
 
 // Another process updates the database
 // writer.Finalize() renames atomically
@@ -366,8 +366,8 @@ package main
 import (
     "fmt"
     "log"
-    
-    "github.com/SpaskeISO/cdbgo/cdb/cdb64"
+
+    "github.com/SpaskeISO/cdbgo/cdb64"
 )
 
 func main() {
@@ -376,29 +376,29 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    
+
     if err := writer.PutString("key", "value"); err != nil {
         writer.Abort()
         log.Fatal(err)
     }
-    
+
     if err := writer.Finalize(); err != nil {
         log.Fatal(err)
     }
-    
+
     // Open and read
     db, err := cdb64.Open("data.cdb64")
     if err != nil {
         log.Fatal(err)
     }
-    defer cdb64.Close(db)
-    
+    defer db.Close()
+
     value, err := db.Get([]byte("key"))
     if err != nil {
         log.Fatal(err)
     }
     fmt.Printf("Value: %s\n", value)
-    
+
     // Iterate through all records
     it := cdb64.NewIterator(db)
     for {
