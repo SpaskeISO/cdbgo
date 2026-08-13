@@ -4,33 +4,61 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 )
 
-// writeNativeRecord writes a key-value pair in native CDB64 format
 func writeNativeRecord(w io.Writer, key, value []byte) error {
-	_, err := fmt.Fprintf(w, "+%d,%d:%s->%s\n", len(key), len(value), key, value)
+	_, err := fmt.Fprintf(w, "+%d,%d:", len(key), len(value))
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(key); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, "->"); err != nil {
+		return err
+	}
+	if _, err := w.Write(value); err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, "\n")
 	return err
 }
 
-// writeNativeKey writes a key in native CDB64 format (for list mode)
 func writeNativeKey(w io.Writer, key []byte) error {
-	_, err := fmt.Fprintf(w, "+%d:%s\n", len(key), key)
+	_, err := fmt.Fprintf(w, "+%d:", len(key))
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(key); err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, "\n")
 	return err
 }
 
-// writeMapRecord writes a key-value pair in map format
 func writeMapRecord(w io.Writer, key, value []byte) error {
-	_, err := fmt.Fprintf(w, "%s %s\n", key, value)
+	if _, err := w.Write(key); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, " "); err != nil {
+		return err
+	}
+	if _, err := w.Write(value); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, "\n")
 	return err
 }
 
-// writeMapKey writes a key in map format (for list mode)
 func writeMapKey(w io.Writer, key []byte) error {
-	_, err := fmt.Fprintf(w, "%s\n", key)
+	if _, err := w.Write(key); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, "\n")
 	return err
 }
 
-// readNativeFormat reads records from native CDB64 format
 type nativeFormatReader struct {
 	r *bufio.Reader
 }
@@ -42,14 +70,12 @@ func newNativeFormatReader(r io.Reader) *nativeFormatReader {
 }
 
 func (nfr *nativeFormatReader) next() (key, value []byte, err error) {
-	// Read '+'
 	b, err := nfr.r.ReadByte()
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if b == '\n' {
-		// Empty line means end of data
 		return nil, nil, io.EOF
 	}
 
@@ -57,19 +83,23 @@ func (nfr *nativeFormatReader) next() (key, value []byte, err error) {
 		return nil, nil, fmt.Errorf("invalid format: expected '+', got '%c'", b)
 	}
 
-	// Read klen and vlen (64-bit values)
 	var klen, vlen int
 	if _, err := fmt.Fscanf(nfr.r, "%d,%d:", &klen, &vlen); err != nil {
 		return nil, nil, fmt.Errorf("invalid format: %w", err)
 	}
 
-	// Read key
+	if klen < 0 || vlen < 0 {
+		return nil, nil, fmt.Errorf("invalid format: negative length")
+	}
+	if klen > math.MaxInt-1 || vlen > math.MaxInt-1 {
+		return nil, nil, fmt.Errorf("invalid format: length too large")
+	}
+
 	key = make([]byte, klen)
 	if _, err := io.ReadFull(nfr.r, key); err != nil {
 		return nil, nil, fmt.Errorf("failed to read key: %w", err)
 	}
 
-	// Read '->'
 	arrow := make([]byte, 2)
 	if _, err := io.ReadFull(nfr.r, arrow); err != nil {
 		return nil, nil, err
@@ -78,13 +108,11 @@ func (nfr *nativeFormatReader) next() (key, value []byte, err error) {
 		return nil, nil, fmt.Errorf("invalid format: expected '->'")
 	}
 
-	// Read value
 	value = make([]byte, vlen)
 	if _, err := io.ReadFull(nfr.r, value); err != nil {
 		return nil, nil, fmt.Errorf("failed to read value: %w", err)
 	}
 
-	// Read newline
 	b, err = nfr.r.ReadByte()
 	if err != nil {
 		return nil, nil, err
@@ -96,38 +124,55 @@ func (nfr *nativeFormatReader) next() (key, value []byte, err error) {
 	return key, value, nil
 }
 
-// readMapFormat reads records from map format
 type mapFormatReader struct {
-	scanner *bufio.Scanner
+	r *bufio.Reader
 }
 
 func newMapFormatReader(r io.Reader) *mapFormatReader {
 	return &mapFormatReader{
-		scanner: bufio.NewScanner(r),
+		r: bufio.NewReader(r),
 	}
 }
 
 func (mfr *mapFormatReader) next() (key, value []byte, err error) {
-	for mfr.scanner.Scan() {
-		line := mfr.scanner.Bytes()
+	for {
+		line, err := mfr.r.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				if len(line) == 0 {
+					return nil, nil, io.EOF
+				}
+			} else {
+				return nil, nil, err
+			}
+		}
 
-		// Skip empty lines
+		if len(line) > 0 && line[len(line)-1] == '\n' {
+			line = line[:len(line)-1]
+		}
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+
 		if len(line) == 0 {
+			if err == io.EOF {
+				return nil, nil, io.EOF
+			}
 			continue
 		}
 
-		// Trim leading whitespace
 		start := 0
 		for start < len(line) && (line[start] == ' ' || line[start] == '\t') {
 			start++
 		}
 
-		// Skip comment lines
 		if start >= len(line) || line[start] == '#' {
+			if err == io.EOF {
+				return nil, nil, io.EOF
+			}
 			continue
 		}
 
-		// Find key end (first whitespace)
 		keyEnd := start
 		for keyEnd < len(line) && line[keyEnd] != ' ' && line[keyEnd] != '\t' {
 			keyEnd++
@@ -136,7 +181,6 @@ func (mfr *mapFormatReader) next() (key, value []byte, err error) {
 		key = make([]byte, keyEnd-start)
 		copy(key, line[start:keyEnd])
 
-		// Find value start (skip whitespace)
 		valueStart := keyEnd
 		for valueStart < len(line) && (line[valueStart] == ' ' || line[valueStart] == '\t') {
 			valueStart++
@@ -151,10 +195,4 @@ func (mfr *mapFormatReader) next() (key, value []byte, err error) {
 
 		return key, value, nil
 	}
-
-	if err := mfr.scanner.Err(); err != nil {
-		return nil, nil, err
-	}
-
-	return nil, nil, io.EOF
 }

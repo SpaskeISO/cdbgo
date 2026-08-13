@@ -2,10 +2,13 @@ package cdb64
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
+	"runtime"
 )
 
 // DuplicateMode defines how to handle duplicate keys
@@ -22,7 +25,7 @@ const (
 	DuplicateModeReplace
 	// DuplicateModeUnique ignores duplicate keys (keeps first)
 	DuplicateModeUnique
-	// DuplicateModeZeroFill zero-fills duplicate records
+	// DuplicateModeZeroFill zero-fills old duplicate records and keeps the new value
 	DuplicateModeZeroFill
 )
 
@@ -33,16 +36,18 @@ type Writer struct {
 	finalFile     string
 	pos           uint64
 	entries       []entry
-	duplicates    map[string][]int // map key to entry indices
+	duplicates    map[string][]int
 	duplicateMode DuplicateMode
 	warned        map[string]bool
+	closed        bool
 }
 
 type entry struct {
-	hash  uint64
-	key   []byte
-	value []byte
-	pos   uint64
+	hash uint64
+	pos  uint64
+	klen uint64
+	vlen uint64
+	skip bool
 }
 
 // Create creates a new CDB64 writer
@@ -57,7 +62,6 @@ func Create(finalFile, tempFile string) (*Writer, error) {
 	var err error
 
 	if tempFile == "-" {
-		// Create in-place
 		file, err = os.Create(finalFile)
 		tempFile = ""
 	} else {
@@ -79,7 +83,6 @@ func Create(finalFile, tempFile string) (*Writer, error) {
 		warned:        make(map[string]bool),
 	}
 
-	// Write placeholder header
 	header := make([]byte, HeaderSize)
 	if _, err := file.Write(header); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
@@ -101,64 +104,115 @@ func (w *Writer) SetDuplicateMode(mode DuplicateMode) {
 	w.duplicateMode = mode
 }
 
-// Put adds a key-value pair to the database
-func (w *Writer) Put(key, value []byte) error {
-	keyStr := string(key)
-	h := hash(key)
+func (w *Writer) handleDuplicate(key []byte) error {
+	if w.duplicateMode == DuplicateModeAllow {
+		return nil
+	}
 
-	// Check for duplicates
-	if indices, exists := w.duplicates[keyStr]; exists {
-		switch w.duplicateMode {
-		case DuplicateModeWarn:
-			if !w.warned[keyStr] {
-				fmt.Fprintf(os.Stderr, "warning: duplicate key: %s\n", keyStr)
-				w.warned[keyStr] = true
+	keyStr := string(key)
+	indices, exists := w.duplicates[keyStr]
+	if !exists {
+		return nil
+	}
+
+	switch w.duplicateMode {
+	case DuplicateModeWarn:
+		if !w.warned[keyStr] {
+			fmt.Fprintf(os.Stderr, "warning: duplicate key: %s\n", keyStr)
+			w.warned[keyStr] = true
+		}
+	case DuplicateModeError:
+		return fmt.Errorf("duplicate key: %s", keyStr)
+	case DuplicateModeUnique:
+		return errSkipRecord
+	case DuplicateModeReplace:
+		for _, idx := range indices {
+			w.entries[idx].skip = true
+		}
+	case DuplicateModeZeroFill:
+		for _, idx := range indices {
+			if err := w.zeroFillEntry(&w.entries[idx]); err != nil {
+				return err
 			}
-		case DuplicateModeError:
-			return fmt.Errorf("duplicate key: %s", keyStr)
-		case DuplicateModeUnique:
-			return nil // Ignore duplicate
-		case DuplicateModeReplace:
-			// Mark old entries for zero-fill
-			for _, idx := range indices {
-				w.entries[idx].value = make([]byte, len(w.entries[idx].value))
-			}
-		case DuplicateModeZeroFill:
-			// Mark old entries for zero-fill
-			for _, idx := range indices {
-				w.entries[idx].value = make([]byte, len(w.entries[idx].value))
-			}
+			w.entries[idx].skip = true
 		}
 	}
+	return nil
+}
 
-	// Create entry
-	e := entry{
-		hash:  h,
-		key:   make([]byte, len(key)),
-		value: make([]byte, len(value)),
-		pos:   w.pos,
+var errSkipRecord = fmt.Errorf("skip record")
+
+func (w *Writer) zeroFillEntry(e *entry) error {
+	if e.vlen == 0 {
+		return nil
 	}
-	copy(e.key, key)
-	copy(e.value, value)
+	buf, err := allocBytes(e.vlen)
+	if err != nil {
+		return err
+	}
+	off := e.pos + recordHeaderSize + e.klen
+	if off < e.pos || off > uint64(math.MaxInt64) {
+		return ErrInvalidFormat
+	}
+	if _, err := w.file.WriteAt(buf, int64(off)); err != nil {
+		return fmt.Errorf("failed to zero-fill record: %w", err)
+	}
+	return nil
+}
 
-	// Track duplicate
-	w.duplicates[keyStr] = append(w.duplicates[keyStr], len(w.entries))
+func (w *Writer) checkRecordSize(klen, vlen int) (uint64, error) {
+	recordSize := uint64(recordHeaderSize) + uint64(klen) + uint64(vlen)
+	if recordSize < uint64(recordHeaderSize) {
+		return 0, ErrTooLarge
+	}
+	if w.pos > math.MaxUint64-recordSize {
+		return 0, ErrTooLarge
+	}
+	newPos := w.pos + recordSize
+	if newPos > uint64(math.MaxInt64) {
+		return 0, ErrTooLarge
+	}
+	return recordSize, nil
+}
+
+// Put adds a key-value pair to the database
+func (w *Writer) Put(key, value []byte) error {
+	if err := w.handleDuplicate(key); err != nil {
+		if errors.Is(err, errSkipRecord) {
+			return nil
+		}
+		return err
+	}
+
+	recordSize, err := w.checkRecordSize(len(key), len(value))
+	if err != nil {
+		return err
+	}
+
+	e := entry{
+		hash: hash(key),
+		pos:  w.pos,
+		klen: uint64(len(key)),
+		vlen: uint64(len(value)),
+	}
+
+	if w.duplicateMode != DuplicateModeAllow {
+		keyStr := string(key)
+		w.duplicates[keyStr] = append(w.duplicates[keyStr], len(w.entries))
+	}
 	w.entries = append(w.entries, e)
 
-	// Write record: klen(8) + vlen(8) + key + value
-	recordSize := 16 + len(key) + len(value)
 	record := make([]byte, recordSize)
-
 	binary.LittleEndian.PutUint64(record[0:8], uint64(len(key)))
 	binary.LittleEndian.PutUint64(record[8:16], uint64(len(value)))
-	copy(record[16:], key)
-	copy(record[16+len(key):], value)
+	copy(record[recordHeaderSize:], key)
+	copy(record[recordHeaderSize+len(key):], value)
 
 	if _, err := w.file.Write(record); err != nil {
 		return fmt.Errorf("failed to write record: %w", err)
 	}
 
-	w.pos += uint64(recordSize)
+	w.pos += recordSize
 	return nil
 }
 
@@ -166,40 +220,47 @@ func (w *Writer) Put(key, value []byte) error {
 // The atomic rename ensures that readers with the old file open continue to work,
 // while new opens immediately see the new version. This allows zero-downtime updates.
 func (w *Writer) Finalize() error {
-	// Group entries by hash table
-	tables := make([][]entry, NumTables)
-	for i := range tables {
-		tables[i] = make([]entry, 0)
+	if err := w.finalize(); err != nil {
+		_ = w.Abort()
+		return err
 	}
+	return nil
+}
 
+func (w *Writer) finalize() error {
+	tables := make([][]entry, NumTables)
 	for _, e := range w.entries {
+		if e.skip {
+			continue
+		}
 		tableIdx := e.hash % NumTables
 		tables[tableIdx] = append(tables[tableIdx], e)
 	}
 
-	// Write hash tables and build header
 	header := make([]byte, HeaderSize)
 	for i := 0; i < NumTables; i++ {
-		entries := tables[i]
-		nslots := uint64(len(entries) * 2)
+		ents := tables[i]
+		nslots := uint64(len(ents) * 2)
 		if nslots == 0 {
-			// Empty table
-			binary.LittleEndian.PutUint64(header[i*16:i*16+8], 0)
-			binary.LittleEndian.PutUint64(header[i*16+8:i*16+16], 0)
+			binary.LittleEndian.PutUint64(header[i*slotSize:i*slotSize+8], 0)
+			binary.LittleEndian.PutUint64(header[i*slotSize+8:i*slotSize+16], 0)
 			continue
 		}
 
-		// Create hash table
-		slots := make([]byte, nslots*16)
+		if nslots > math.MaxUint64/slotSize {
+			return ErrTooLarge
+		}
+		tableBytes := nslots * slotSize
+		if w.pos > math.MaxUint64-tableBytes || w.pos+tableBytes > uint64(math.MaxInt64) {
+			return ErrTooLarge
+		}
 
-		for _, e := range entries {
-			// Find empty slot using linear probing
+		slots := make([]byte, tableBytes)
+		for _, e := range ents {
 			slot := (e.hash / NumTables) % nslots
 			for {
-				offset := slot * 16
-				// Check if slot is empty (pos == 0)
+				offset := slot * slotSize
 				if binary.LittleEndian.Uint64(slots[offset+8:offset+16]) == 0 {
-					// Write hash and position
 					binary.LittleEndian.PutUint64(slots[offset:offset+8], e.hash)
 					binary.LittleEndian.PutUint64(slots[offset+8:offset+16], e.pos)
 					break
@@ -208,66 +269,81 @@ func (w *Writer) Finalize() error {
 			}
 		}
 
-		// Write hash table to file
 		tablePos := w.pos
 		if _, err := w.file.Write(slots); err != nil {
 			return fmt.Errorf("failed to write hash table: %w", err)
 		}
 
-		// Update header
-		binary.LittleEndian.PutUint64(header[i*16:i*16+8], tablePos)
-		binary.LittleEndian.PutUint64(header[i*16+8:i*16+16], nslots)
-
-		w.pos += uint64(len(slots))
+		binary.LittleEndian.PutUint64(header[i*slotSize:i*slotSize+8], tablePos)
+		binary.LittleEndian.PutUint64(header[i*slotSize+8:i*slotSize+16], nslots)
+		w.pos += tableBytes
 	}
 
-	// Write header at the beginning of the file
 	if _, err := w.file.WriteAt(header, 0); err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
 	}
 
-	// Sync and close
 	if err := w.file.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
 	if err := w.file.Close(); err != nil {
+		w.file = nil
+		w.closed = true
 		return fmt.Errorf("failed to close file: %w", err)
 	}
+	w.file = nil
+	w.closed = true
 
-	// Rename temp file to final file
 	if w.tempFile != "" && w.tempFile != w.finalFile {
-		if err := os.Rename(w.tempFile, w.finalFile); err != nil {
+		if err := replaceFile(w.tempFile, w.finalFile); err != nil {
 			return fmt.Errorf("failed to rename file: %w", err)
 		}
 	}
-
+	w.tempFile = ""
 	return nil
+}
+
+func replaceFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	} else if runtime.GOOS != "windows" {
+		return err
+	}
+
+	if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(src, dst)
 }
 
 // Abort cancels the database creation and removes the temp file
 func (w *Writer) Abort() error {
 	var firstErr error
 
-	if w.file != nil {
+	if w.file != nil && !w.closed {
 		if err := w.file.Close(); err != nil {
 			firstErr = fmt.Errorf("failed to close file: %w", err)
 		}
+		w.file = nil
+		w.closed = true
 	}
 
 	if w.tempFile != "" {
-		if err := os.Remove(w.tempFile); err != nil {
+		if err := os.Remove(w.tempFile); err != nil && !os.IsNotExist(err) {
 			if firstErr == nil {
-				return fmt.Errorf("failed to remove temp file: %w", err)
+				firstErr = fmt.Errorf("failed to remove temp file: %w", err)
+			} else {
+				slog.Warn("failed to remove temp file after close error", "error", err)
 			}
-			slog.Warn("failed to remove temp file after close error", "error", err)
 		}
+		w.tempFile = ""
 	}
 
 	return firstErr
 }
 
-// SetPermissions sets the file permissions (must be called before Finalize)
+// SetPermissions sets the file permissions (must be called after Finalize)
 func SetPermissions(filename string, perms os.FileMode) error {
 	return os.Chmod(filename, perms)
 }
@@ -301,10 +377,8 @@ func (w *Writer) WriteFrom(r io.Reader, mapFormat bool) error {
 }
 
 func (w *Writer) writeNativeFormat(r io.Reader) error {
-	// Native format: +klen,vlen:key->val\n
 	buf := make([]byte, 1)
 	for {
-		// Read '+'
 		if _, err := io.ReadFull(r, buf); err != nil {
 			if err == io.EOF {
 				return nil
@@ -313,7 +387,6 @@ func (w *Writer) writeNativeFormat(r io.Reader) error {
 		}
 
 		if buf[0] == '\n' {
-			// Empty line, end of data
 			return nil
 		}
 
@@ -321,13 +394,11 @@ func (w *Writer) writeNativeFormat(r io.Reader) error {
 			return fmt.Errorf("invalid format: expected '+'")
 		}
 
-		// Read klen
-		var klen uint64
+		var klen, vlen uint64
 		if _, err := fmt.Fscanf(r, "%d", &klen); err != nil {
 			return fmt.Errorf("invalid format: failed to read klen: %w", err)
 		}
 
-		// Read ','
 		if _, err := io.ReadFull(r, buf); err != nil {
 			return err
 		}
@@ -335,13 +406,10 @@ func (w *Writer) writeNativeFormat(r io.Reader) error {
 			return fmt.Errorf("invalid format: expected ','")
 		}
 
-		// Read vlen
-		var vlen uint64
 		if _, err := fmt.Fscanf(r, "%d", &vlen); err != nil {
 			return fmt.Errorf("invalid format: failed to read vlen: %w", err)
 		}
 
-		// Read ':'
 		if _, err := io.ReadFull(r, buf); err != nil {
 			return err
 		}
@@ -349,13 +417,15 @@ func (w *Writer) writeNativeFormat(r io.Reader) error {
 			return fmt.Errorf("invalid format: expected ':'")
 		}
 
-		// Read key
+		if klen > uint64(math.MaxInt) || vlen > uint64(math.MaxInt) {
+			return fmt.Errorf("invalid format: length too large")
+		}
+
 		key := make([]byte, klen)
 		if _, err := io.ReadFull(r, key); err != nil {
 			return fmt.Errorf("failed to read key: %w", err)
 		}
 
-		// Read '->'
 		arrow := make([]byte, 2)
 		if _, err := io.ReadFull(r, arrow); err != nil {
 			return err
@@ -364,13 +434,11 @@ func (w *Writer) writeNativeFormat(r io.Reader) error {
 			return fmt.Errorf("invalid format: expected '->'")
 		}
 
-		// Read value
 		value := make([]byte, vlen)
 		if _, err := io.ReadFull(r, value); err != nil {
 			return fmt.Errorf("failed to read value: %w", err)
 		}
 
-		// Read newline
 		if _, err := io.ReadFull(r, buf); err != nil {
 			return err
 		}
@@ -378,7 +446,6 @@ func (w *Writer) writeNativeFormat(r io.Reader) error {
 			return fmt.Errorf("invalid format: expected newline")
 		}
 
-		// Add to database
 		if err := w.Put(key, value); err != nil {
 			return err
 		}
@@ -386,20 +453,16 @@ func (w *Writer) writeNativeFormat(r io.Reader) error {
 }
 
 func (w *Writer) writeMapFormat(r io.Reader) error {
-	// Map format: key<whitespace>value\n
-	// Lines starting with # and empty lines are ignored
 	line := make([]byte, 0, 4096)
 	buf := make([]byte, 1)
 
 	for {
 		line = line[:0]
 
-		// Read line
 		for {
 			if _, err := io.ReadFull(r, buf); err != nil {
 				if err == io.EOF {
 					if len(line) > 0 {
-						// Process last line
 						if err := w.processMapLine(line); err != nil {
 							return err
 						}
@@ -423,12 +486,10 @@ func (w *Writer) writeMapFormat(r io.Reader) error {
 }
 
 func (w *Writer) processMapLine(line []byte) error {
-	// Skip empty lines and comments
 	if len(line) == 0 {
 		return nil
 	}
 
-	// Trim leading whitespace
 	start := 0
 	for start < len(line) && (line[start] == ' ' || line[start] == '\t') {
 		start++
@@ -438,7 +499,6 @@ func (w *Writer) processMapLine(line []byte) error {
 		return nil
 	}
 
-	// Find key (non-whitespace)
 	keyStart := start
 	keyEnd := keyStart
 	for keyEnd < len(line) && line[keyEnd] != ' ' && line[keyEnd] != '\t' {
@@ -446,23 +506,19 @@ func (w *Writer) processMapLine(line []byte) error {
 	}
 
 	if keyEnd >= len(line) {
-		// No value, just key
 		return w.Put(line[keyStart:keyEnd], []byte{})
 	}
 
 	key := line[keyStart:keyEnd]
 
-	// Skip whitespace to find value
 	valueStart := keyEnd
 	for valueStart < len(line) && (line[valueStart] == ' ' || line[valueStart] == '\t') {
 		valueStart++
 	}
 
 	if valueStart >= len(line) {
-		// No value after whitespace
 		return w.Put(key, []byte{})
 	}
 
-	value := line[valueStart:]
-	return w.Put(key, value)
+	return w.Put(key, line[valueStart:])
 }

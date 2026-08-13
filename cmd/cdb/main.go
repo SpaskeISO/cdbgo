@@ -1,14 +1,16 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/SpaskeISO/cdbgo/cdb"
 )
 
 type config struct {
-	// Mode flags
 	query  bool
 	dump   bool
 	list   bool
@@ -16,13 +18,11 @@ type config struct {
 	stats  bool
 	help   bool
 
-	// Common flags
-	mapFormat bool
+	mapFormat  bool
+	allRecords bool
 
-	// Query flags
 	recno int
 
-	// Create flags
 	tempFile string
 	perms    string
 	warn     bool
@@ -31,7 +31,6 @@ type config struct {
 	unique   bool
 	zeroFill bool
 
-	// Positional arguments
 	dbfile  string
 	key     string
 	infiles []string
@@ -46,30 +45,37 @@ func main() {
 	}
 
 	var err error
-	exitCode := 0
 
-	if cfg.query {
+	switch {
+	case cfg.query:
 		err = queryMode(cfg)
-		if err != nil {
-			exitCode = 1
-		}
-	} else if cfg.dump {
+	case cfg.dump:
 		err = dumpMode(cfg)
-	} else if cfg.list {
+	case cfg.list:
 		err = listMode(cfg)
-	} else if cfg.create {
+	case cfg.create:
 		err = createMode(cfg)
-	} else if cfg.stats {
+	case cfg.stats:
 		err = statsMode(cfg)
-	} else {
+	default:
 		printHelp()
 		os.Exit(1)
 	}
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cdb: %v\n", err)
-		os.Exit(exitCode)
+		os.Exit(exitStatus(err))
 	}
+}
+
+func exitStatus(err error) int {
+	if err == nil {
+		return 0
+	}
+	if errors.Is(err, cdb.ErrNotFound) {
+		return 100
+	}
+	return 1
 }
 
 func parseFlags() *config {
@@ -77,7 +83,6 @@ func parseFlags() *config {
 		recno: -1,
 	}
 
-	// Mode flags
 	flag.BoolVar(&cfg.query, "q", false, "query mode")
 	flag.BoolVar(&cfg.dump, "d", false, "dump mode")
 	flag.BoolVar(&cfg.list, "l", false, "list mode")
@@ -85,13 +90,11 @@ func parseFlags() *config {
 	flag.BoolVar(&cfg.stats, "s", false, "statistics mode")
 	flag.BoolVar(&cfg.help, "h", false, "print help")
 
-	// Common flags
 	flag.BoolVar(&cfg.mapFormat, "m", false, "use map format (not native cdb format)")
+	flag.BoolVar(&cfg.allRecords, "a", false, "find and print all records")
 
-	// Query flags
 	flag.IntVar(&cfg.recno, "n", -1, "find and print nth record")
 
-	// Create flags
 	flag.StringVar(&cfg.tempFile, "t", "", "temporary file for creation")
 	flag.StringVar(&cfg.perms, "p", "", "file permissions (octal)")
 	flag.BoolVar(&cfg.warn, "w", false, "warn about duplicate keys")
@@ -102,7 +105,6 @@ func parseFlags() *config {
 
 	flag.Parse()
 
-	// Parse positional arguments
 	args := flag.Args()
 
 	if cfg.query {
@@ -148,7 +150,6 @@ func parsePerms(permsStr string) (os.FileMode, error) {
 		return 0666, nil
 	}
 
-	// Parse octal
 	perms, err := strconv.ParseUint(permsStr, 8, 32)
 	if err != nil {
 		return 0, fmt.Errorf("invalid permissions: %s", permsStr)

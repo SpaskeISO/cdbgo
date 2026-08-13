@@ -2,26 +2,17 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/SpaskeISO/cdbgo/cdb"
 )
 
 func dumpMode(cfg *config) error {
-	if cfg.dbfile == "-" {
-		return fmt.Errorf("dump mode does not support stdin (yet)")
-	}
-
-	db, err := cdb.Open(cfg.dbfile)
+	db, cleanup, err := openDatabase(cfg.dbfile)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Warn("failed to close database", "error", err)
-		}
-	}()
+	defer cleanup()
 
 	it := cdb.NewIterator(db)
 
@@ -46,7 +37,6 @@ func dumpMode(cfg *config) error {
 		return err
 	}
 
-	// Write empty line for native format
 	if !cfg.mapFormat {
 		fmt.Println()
 	}

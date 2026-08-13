@@ -10,7 +10,7 @@ A complete implementation of the Constant DataBase (CDB) format in Go, including
   - Standard `cdb` package and CLI tool
 
 - **64-bit CDB (cdb64)**: Extended implementation for large-scale databases
-  - 1024 hash tables, 16KB header
+  - 256 hash tables, 4KB header (official cdb64 layout)
   - Exabyte-scale file support
   - 64-bit hash function for better collision resistance
   - Separate `cdb64` package and CLI tool
@@ -352,8 +352,8 @@ The `cdb64` package provides a 64-bit implementation of CDB for large-scale data
 ### Key Differences from 32-bit CDB
 
 - **File Format**: 64-bit offsets and lengths throughout
-- **Header**: 16 KB (1024 tables × 16 bytes per table pointer)
-- **Hash Tables**: 1024 tables (vs 256 in 32-bit)
+- **Header**: 4 KB (256 tables × 16 bytes per table pointer)
+- **Hash Tables**: 256 tables (same count as 32-bit CDB)
 - **Hash Function**: 64-bit DJB hash for better collision resistance
 - **Capacity**: Supports exabyte-scale files vs 4GB limit in 32-bit
 - **No Compatibility**: Cannot read/write 32-bit CDB files
@@ -438,14 +438,13 @@ All flags and modes work identically to the 32-bit version.
 
 Use **cdb64** when:
 - Your database will exceed 4GB
-- You need more than 256 hash tables for better distribution
-- You're working with billions or trillions of records
+- You're working with billions of records
 - You want better collision resistance with 64-bit hashing
 
 Use **cdb** (32-bit) when:
-- You need compatibility with existing CDB tools
+- You need compatibility with existing 32-bit CDB tools
 - Your database is under 4GB
-- You want minimal overhead (2KB header vs 16KB)
+- You want minimal overhead (2KB header vs 4KB)
 
 ## Testing
 

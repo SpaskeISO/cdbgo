@@ -3,6 +3,7 @@ package cdb
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,9 @@ func TestDuplicateModeError(t *testing.T) {
 	err = writer.PutString("key", "value2")
 	if err == nil {
 		t.Error("Expected error on duplicate key")
+	}
+	if abortErr := writer.Abort(); abortErr != nil {
+		t.Errorf("Failed to abort: %v", abortErr)
 	}
 }
 
@@ -284,5 +288,181 @@ func TestSetPermissions(t *testing.T) {
 
 	if info.Mode().Perm() != 0600 {
 		t.Errorf("Expected permissions 0600, got %o", info.Mode().Perm())
+	}
+}
+
+func TestDuplicateModeReplace(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.cdb")
+
+	writer, err := Create(dbPath, "")
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	writer.SetDuplicateMode(DuplicateModeReplace)
+
+	if err := writer.PutString("key", "old"); err != nil {
+		t.Fatalf("Failed to put first value: %v", err)
+	}
+	if err := writer.PutString("key", "new"); err != nil {
+		t.Fatalf("Failed to put replacement: %v", err)
+	}
+	if err := writer.Finalize(); err != nil {
+		t.Fatalf("Failed to finalize: %v", err)
+	}
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open: %v", err)
+	}
+	defer db.Close()
+
+	value, err := db.Get([]byte("key"))
+	if err != nil {
+		t.Fatalf("Failed to get: %v", err)
+	}
+	if string(value) != "new" {
+		t.Errorf("Expected 'new', got %q", value)
+	}
+
+	values, err := db.GetAll([]byte("key"))
+	if err != nil {
+		t.Fatalf("Failed to get all: %v", err)
+	}
+	if len(values) != 1 || string(values[0]) != "new" {
+		t.Errorf("GetAll should return only the replacement, got %v", values)
+	}
+}
+
+func TestDuplicateModeZeroFill(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.cdb")
+
+	writer, err := Create(dbPath, "")
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	writer.SetDuplicateMode(DuplicateModeZeroFill)
+
+	if err := writer.PutString("key", "secret"); err != nil {
+		t.Fatalf("Failed to put first value: %v", err)
+	}
+	oldPos := writer.entries[0].pos
+	oldVlen := writer.entries[0].vlen
+
+	if err := writer.PutString("key", "public"); err != nil {
+		t.Fatalf("Failed to put second value: %v", err)
+	}
+	if err := writer.Finalize(); err != nil {
+		t.Fatalf("Failed to finalize: %v", err)
+	}
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open: %v", err)
+	}
+	defer db.Close()
+
+	value, err := db.Get([]byte("key"))
+	if err != nil {
+		t.Fatalf("Failed to get: %v", err)
+	}
+	if string(value) != "public" {
+		t.Errorf("Expected 'public', got %q", value)
+	}
+
+	raw, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+	start := int(oldPos) + recordHeaderSize + len("key")
+	end := start + int(oldVlen)
+	for i := start; i < end; i++ {
+		if raw[i] != 0 {
+			t.Fatalf("expected zero-filled old value, got byte %d at %d", raw[i], i)
+		}
+	}
+}
+
+func TestPutOverflow(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.cdb")
+
+	writer, err := Create(dbPath, "")
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+	defer writer.Abort()
+
+	writer.pos = ^uint32(0) - 4
+	err = writer.Put([]byte("k"), []byte("v"))
+	if err != ErrTooLarge {
+		t.Errorf("Expected ErrTooLarge, got %v", err)
+	}
+}
+
+func TestWriteFromNativeFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.cdb")
+
+	writer, err := Create(dbPath, "")
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	input := "+3,5:foo->hello\n+3,5:bar->world\n\n"
+	if err := writer.WriteFrom(strings.NewReader(input), false); err != nil {
+		t.Fatalf("WriteFrom failed: %v", err)
+	}
+	if err := writer.Finalize(); err != nil {
+		t.Fatalf("Failed to finalize: %v", err)
+	}
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open: %v", err)
+	}
+	defer db.Close()
+
+	value, err := db.Get([]byte("foo"))
+	if err != nil {
+		t.Fatalf("Failed to get foo: %v", err)
+	}
+	if string(value) != "hello" {
+		t.Errorf("Expected hello, got %q", value)
+	}
+}
+
+func TestWriteFromMapFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.cdb")
+
+	writer, err := Create(dbPath, "")
+	if err != nil {
+		t.Fatalf("Failed to create writer: %v", err)
+	}
+
+	input := "# comment\nfoo hello world\nbar\n"
+	if err := writer.WriteFrom(strings.NewReader(input), true); err != nil {
+		t.Fatalf("WriteFrom failed: %v", err)
+	}
+	if err := writer.Finalize(); err != nil {
+		t.Fatalf("Failed to finalize: %v", err)
+	}
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open: %v", err)
+	}
+	defer db.Close()
+
+	value, err := db.Get([]byte("foo"))
+	if err != nil {
+		t.Fatalf("Failed to get foo: %v", err)
+	}
+	if string(value) != "hello world" {
+		t.Errorf("Expected 'hello world', got %q", value)
 	}
 }

@@ -2,7 +2,7 @@ package cdb64
 
 import (
 	"encoding/binary"
-	"io"
+	"math"
 )
 
 // Iterator provides sequential access to all records in a CDB64 database
@@ -16,7 +16,7 @@ type Iterator struct {
 func NewIterator(cdb *CDB) *Iterator {
 	return &Iterator{
 		cdb: cdb,
-		pos: HeaderSize, // Start after header
+		pos: HeaderSize,
 	}
 }
 
@@ -24,64 +24,92 @@ func NewIterator(cdb *CDB) *Iterator {
 // It returns false when there are no more records or an error occurred.
 // Use Err() to check for errors after Next returns false.
 func (it *Iterator) Next() (key, value []byte, ok bool) {
-	// Check if we've reached the end of the file
+	if it.err != nil {
+		return nil, nil, false
+	}
+
+	if err := it.skipHashTables(); err != nil {
+		it.err = err
+		return nil, nil, false
+	}
+
 	if it.pos >= it.cdb.size {
 		return nil, nil, false
 	}
 
-	// Read record header (klen + vlen)
-	header := make([]byte, 16)
-	n, err := it.cdb.file.ReadAt(header, it.pos)
+	if uint64(it.pos)+recordHeaderSize > uint64(it.cdb.size) {
+		it.err = ErrInvalidFormat
+		return nil, nil, false
+	}
+
+	var hdr [recordHeaderSize]byte
+	if err := it.cdb.readAt(hdr[:], uint64(it.pos)); err != nil {
+		it.err = err
+		return nil, nil, false
+	}
+
+	klen := binary.LittleEndian.Uint64(hdr[0:8])
+	vlen := binary.LittleEndian.Uint64(hdr[8:16])
+	recEnd := uint64(it.pos) + recordHeaderSize + klen + vlen
+	if recEnd < uint64(it.pos) || recEnd > uint64(it.cdb.size) {
+		it.err = ErrInvalidFormat
+		return nil, nil, false
+	}
+
+	key, err := allocBytes(klen)
 	if err != nil {
-		if err != io.EOF {
-			it.err = err
-		}
+		it.err = err
 		return nil, nil, false
 	}
-	if n != 16 {
-		return nil, nil, false
-	}
-
-	klen := binary.LittleEndian.Uint64(header[0:8])
-	vlen := binary.LittleEndian.Uint64(header[8:16])
-
-	// Validate lengths
-	if it.pos+16+int64(klen)+int64(vlen) > it.cdb.size {
+	if err := it.cdb.readAt(key, uint64(it.pos)+recordHeaderSize); err != nil {
+		it.err = err
 		return nil, nil, false
 	}
 
-	// Read key
-	key = make([]byte, klen)
-	if klen > 0 {
-		if _, err := it.cdb.file.ReadAt(key, it.pos+16); err != nil {
-			it.err = err
-			return nil, nil, false
-		}
+	value, err = allocBytes(vlen)
+	if err != nil {
+		it.err = err
+		return nil, nil, false
+	}
+	if err := it.cdb.readAt(value, uint64(it.pos)+recordHeaderSize+klen); err != nil {
+		it.err = err
+		return nil, nil, false
 	}
 
-	// Read value
-	value = make([]byte, vlen)
-	if vlen > 0 {
-		if _, err := it.cdb.file.ReadAt(value, it.pos+16+int64(klen)); err != nil {
-			it.err = err
-			return nil, nil, false
-		}
+	if recEnd > uint64(math.MaxInt64) {
+		it.err = ErrInvalidFormat
+		return nil, nil, false
 	}
+	it.pos = int64(recEnd)
+	return key, value, true
+}
 
-	// Move position to next record
-	it.pos += 16 + int64(klen) + int64(vlen)
-
-	// Check if this position is within a hash table
-	// Hash tables can appear at any position after header, so we need to skip them
+func (it *Iterator) skipHashTables() error {
 	for i := 0; i < NumTables; i++ {
 		table := &it.cdb.tables[i]
-		if table.pos > 0 && it.pos >= int64(table.pos) && it.pos < int64(table.pos)+int64(table.nslots*16) {
-			// We're inside a hash table, skip it
-			it.pos = int64(table.pos) + int64(table.nslots*16)
+		if table.pos == 0 || table.nslots == 0 {
+			continue
+		}
+
+		if table.nslots > math.MaxUint64/slotSize {
+			return ErrInvalidFormat
+		}
+		tableBytes := table.nslots * slotSize
+		start := table.pos
+		end := start + tableBytes
+		if end < start {
+			return ErrInvalidFormat
+		}
+
+		pos := uint64(it.pos)
+		if pos >= start && pos < end {
+			if end > uint64(math.MaxInt64) {
+				return ErrInvalidFormat
+			}
+			it.pos = int64(end)
 		}
 	}
-
-	return key, value, true
+	return nil
 }
 
 // Err returns any error that occurred during iteration

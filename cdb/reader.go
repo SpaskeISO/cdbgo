@@ -1,11 +1,13 @@
 package cdb
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 )
 
@@ -14,6 +16,9 @@ const (
 	HeaderSize = 2048
 	// NumTables is the number of hash tables in a CDB file
 	NumTables = 256
+
+	recordHeaderSize = 8
+	slotSize         = 8
 )
 
 var (
@@ -21,6 +26,8 @@ var (
 	ErrNotFound = errors.New("key not found")
 	// ErrInvalidFormat is returned when the CDB file is malformed
 	ErrInvalidFormat = errors.New("invalid CDB format")
+	// ErrTooLarge is returned when a write would exceed the 4GB CDB size limit
+	ErrTooLarge = errors.New("CDB file would exceed the 4GB size limit")
 )
 
 // hashTable represents a single hash table in the CDB
@@ -43,7 +50,6 @@ func Open(filename string) (*CDB, error) {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
-	// Get file size
 	info, err := file.Stat()
 	if err != nil {
 		if closeErr := file.Close(); closeErr != nil {
@@ -64,7 +70,6 @@ func Open(filename string) (*CDB, error) {
 		size: info.Size(),
 	}
 
-	// Read hash table pointers from header
 	header := make([]byte, HeaderSize)
 	if _, err := io.ReadFull(file, header); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
@@ -74,7 +79,7 @@ func Open(filename string) (*CDB, error) {
 	}
 
 	for i := 0; i < NumTables; i++ {
-		offset := i * 8
+		offset := i * slotSize
 		cdb.tables[i].pos = binary.LittleEndian.Uint32(header[offset : offset+4])
 		cdb.tables[i].nslots = binary.LittleEndian.Uint32(header[offset+4 : offset+8])
 	}
@@ -95,13 +100,85 @@ func (c *CDB) GetFile() *os.File {
 	return c.file
 }
 
-// hash computes the DJB hash of a key
+// Size returns the size of the database file in bytes
+func (c *CDB) Size() int64 {
+	return c.size
+}
+
 func hash(key []byte) uint32 {
 	h := uint32(5381)
 	for _, b := range key {
 		h = ((h << 5) + h) ^ uint32(b)
 	}
 	return h
+}
+
+func allocBytes(n uint64) ([]byte, error) {
+	if n > uint64(math.MaxInt) {
+		return nil, ErrInvalidFormat
+	}
+	return make([]byte, n), nil
+}
+
+func (c *CDB) readAt(buf []byte, off uint64) error {
+	if len(buf) == 0 {
+		return nil
+	}
+	if off > uint64(math.MaxInt64) {
+		return ErrInvalidFormat
+	}
+	end := off + uint64(len(buf))
+	if end < off || end > uint64(c.size) {
+		return ErrInvalidFormat
+	}
+	if _, err := c.file.ReadAt(buf, int64(off)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *CDB) readSlot(tablePos uint32, slot uint32) (slotHash, recPos uint32, err error) {
+	off := uint64(tablePos) + uint64(slot)*slotSize
+	var buf [slotSize]byte
+	if err := c.readAt(buf[:], off); err != nil {
+		return 0, 0, fmt.Errorf("failed to read slot: %w", err)
+	}
+	return binary.LittleEndian.Uint32(buf[0:4]), binary.LittleEndian.Uint32(buf[4:8]), nil
+}
+
+func (c *CDB) readRecord(pos uint32) (key, value []byte, err error) {
+	if pos < HeaderSize {
+		return nil, nil, ErrInvalidFormat
+	}
+	var hdr [recordHeaderSize]byte
+	if err := c.readAt(hdr[:], uint64(pos)); err != nil {
+		return nil, nil, fmt.Errorf("failed to read record: %w", err)
+	}
+
+	klen := binary.LittleEndian.Uint32(hdr[0:4])
+	vlen := binary.LittleEndian.Uint32(hdr[4:8])
+	recEnd := uint64(pos) + recordHeaderSize + uint64(klen) + uint64(vlen)
+	if recEnd < uint64(pos) || recEnd > uint64(c.size) {
+		return nil, nil, ErrInvalidFormat
+	}
+
+	key, err = allocBytes(uint64(klen))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := c.readAt(key, uint64(pos)+recordHeaderSize); err != nil {
+		return nil, nil, fmt.Errorf("failed to read key: %w", err)
+	}
+
+	value, err = allocBytes(uint64(vlen))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := c.readAt(value, uint64(pos)+recordHeaderSize+uint64(klen)); err != nil {
+		return nil, nil, fmt.Errorf("failed to read value: %w", err)
+	}
+
+	return key, value, nil
 }
 
 // Get returns the first value associated with the given key
@@ -117,64 +194,33 @@ func (c *CDB) GetN(key []byte, n int) ([]byte, error) {
 
 	h := hash(key)
 	table := &c.tables[h%NumTables]
-
 	if table.nslots == 0 {
 		return nil, ErrNotFound
 	}
 
-	// Start searching in the hash table
 	slot := (h / NumTables) % table.nslots
 	count := 0
 
 	for i := uint32(0); i < table.nslots; i++ {
-		slotPos := table.pos + (slot * 8)
-
-		// Read slot entry (hash + pos)
-		slotData := make([]byte, 8)
-		if _, err := c.file.ReadAt(slotData, int64(slotPos)); err != nil {
-			return nil, fmt.Errorf("failed to read slot: %w", err)
+		slotHash, recPos, err := c.readSlot(table.pos, slot)
+		if err != nil {
+			return nil, err
 		}
-
-		slotHash := binary.LittleEndian.Uint32(slotData[0:4])
-		slotRecPos := binary.LittleEndian.Uint32(slotData[4:8])
-
-		// Empty slot means key not found
-		if slotRecPos == 0 {
+		if recPos == 0 {
 			return nil, ErrNotFound
 		}
-
-		// Check if hash matches
 		if slotHash == h {
-			// Read the record at this position
-			recData := make([]byte, 8)
-			if _, err := c.file.ReadAt(recData, int64(slotRecPos)); err != nil {
-				return nil, fmt.Errorf("failed to read record: %w", err)
+			recKey, recVal, err := c.readRecord(recPos)
+			if err != nil {
+				return nil, err
 			}
-
-			klen := binary.LittleEndian.Uint32(recData[0:4])
-			vlen := binary.LittleEndian.Uint32(recData[4:8])
-
-			// Read key
-			recKey := make([]byte, klen)
-			if _, err := c.file.ReadAt(recKey, int64(slotRecPos)+8); err != nil {
-				return nil, fmt.Errorf("failed to read key: %w", err)
-			}
-
-			// Check if key matches
-			if string(recKey) == string(key) {
+			if bytes.Equal(recKey, key) {
 				count++
 				if count == n {
-					// Read value
-					value := make([]byte, vlen)
-					if _, err := c.file.ReadAt(value, int64(slotRecPos)+8+int64(klen)); err != nil {
-						return nil, fmt.Errorf("failed to read value: %w", err)
-					}
-					return value, nil
+					return recVal, nil
 				}
 			}
 		}
-
-		// Move to next slot (linear probing)
 		slot = (slot + 1) % table.nslots
 	}
 
@@ -187,60 +233,29 @@ func (c *CDB) GetAll(key []byte) ([][]byte, error) {
 
 	h := hash(key)
 	table := &c.tables[h%NumTables]
-
 	if table.nslots == 0 {
 		return results, nil
 	}
 
-	// Start searching in the hash table
 	slot := (h / NumTables) % table.nslots
 
 	for i := uint32(0); i < table.nslots; i++ {
-		slotPos := table.pos + (slot * 8)
-
-		// Read slot entry (hash + pos)
-		slotData := make([]byte, 8)
-		if _, err := c.file.ReadAt(slotData, int64(slotPos)); err != nil {
-			return nil, fmt.Errorf("failed to read slot: %w", err)
+		slotHash, recPos, err := c.readSlot(table.pos, slot)
+		if err != nil {
+			return nil, err
 		}
-
-		slotHash := binary.LittleEndian.Uint32(slotData[0:4])
-		slotRecPos := binary.LittleEndian.Uint32(slotData[4:8])
-
-		// Empty slot means no more entries
-		if slotRecPos == 0 {
+		if recPos == 0 {
 			break
 		}
-
-		// Check if hash matches
 		if slotHash == h {
-			// Read the record at this position
-			recData := make([]byte, 8)
-			if _, err := c.file.ReadAt(recData, int64(slotRecPos)); err != nil {
-				return nil, fmt.Errorf("failed to read record: %w", err)
+			recKey, recVal, err := c.readRecord(recPos)
+			if err != nil {
+				return nil, err
 			}
-
-			klen := binary.LittleEndian.Uint32(recData[0:4])
-			vlen := binary.LittleEndian.Uint32(recData[4:8])
-
-			// Read key
-			recKey := make([]byte, klen)
-			if _, err := c.file.ReadAt(recKey, int64(slotRecPos)+8); err != nil {
-				return nil, fmt.Errorf("failed to read key: %w", err)
-			}
-
-			// Check if key matches
-			if string(recKey) == string(key) {
-				// Read value
-				value := make([]byte, vlen)
-				if _, err := c.file.ReadAt(value, int64(slotRecPos)+8+int64(klen)); err != nil {
-					return nil, fmt.Errorf("failed to read value: %w", err)
-				}
-				results = append(results, value)
+			if bytes.Equal(recKey, key) {
+				results = append(results, recVal)
 			}
 		}
-
-		// Move to next slot (linear probing)
 		slot = (slot + 1) % table.nslots
 	}
 

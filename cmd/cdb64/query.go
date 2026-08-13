@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 
 	"github.com/SpaskeISO/cdbgo/cdb64"
@@ -19,7 +18,7 @@ func queryMode(cfg *config) error {
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
-			slog.Warn("failed to close database", "error", err)
+			fmt.Fprintf(os.Stderr, "cdb64: warning: failed to close database: %v\n", err)
 		}
 	}()
 
@@ -27,29 +26,30 @@ func queryMode(cfg *config) error {
 
 	var values [][]byte
 
-	if cfg.recno > 0 {
-		// Get specific record number
+	switch {
+	case cfg.recno > 0:
 		value, err := db.GetN(key, cfg.recno)
 		if err != nil {
-			if err == cdb64.ErrNotFound {
-				return fmt.Errorf("key not found")
-			}
 			return err
 		}
 		values = append(values, value)
-	} else {
-		// Get all records
+	case cfg.allRecords:
 		allValues, err := db.GetAll(key)
 		if err != nil {
 			return err
 		}
 		if len(allValues) == 0 {
-			return fmt.Errorf("key not found")
+			return cdb64.ErrNotFound
 		}
 		values = allValues
+	default:
+		value, err := db.Get(key)
+		if err != nil {
+			return err
+		}
+		values = append(values, value)
 	}
 
-	// Output values
 	for _, value := range values {
 		if _, err := os.Stdout.Write(value); err != nil {
 			return fmt.Errorf("failed to write output: %w", err)

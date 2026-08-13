@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
-	"log/slog"
 	"math"
 
 	"github.com/SpaskeISO/cdbgo/cdb"
@@ -28,23 +26,15 @@ type stats struct {
 	avgTableSize float64
 
 	collisions int
-	distances  [11]int // 0-9 and 10+
+	distances  [11]int
 }
 
 func statsMode(cfg *config) error {
-	if cfg.dbfile == "-" {
-		return fmt.Errorf("stats mode does not support stdin (yet)")
-	}
-
-	db, err := cdb.Open(cfg.dbfile)
+	db, cleanup, err := openDatabase(cfg.dbfile)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			slog.Warn("failed to close database", "error", err)
-		}
-	}()
+	defer cleanup()
 
 	st := &stats{
 		minKeyLen:    math.MaxInt32,
@@ -52,7 +42,6 @@ func statsMode(cfg *config) error {
 		minTableSize: math.MaxInt32,
 	}
 
-	// Collect statistics by iterating through records
 	it := cdb.NewIterator(db)
 	totalKeyLen := 0
 	totalValueLen := 0
@@ -98,34 +87,36 @@ func statsMode(cfg *config) error {
 		st.minValueLen = 0
 	}
 
-	// Analyze hash tables
 	if err := analyzeHashTables(db, st); err != nil {
 		return err
 	}
 
-	// Print statistics
 	printStats(st)
-
 	return nil
 }
 
 func analyzeHashTables(db *cdb.CDB, st *stats) error {
-	// Read header to get table information
 	file := db.GetFile()
-	header := make([]byte, 2048)
+	header := make([]byte, cdb.HeaderSize)
 	if _, err := file.ReadAt(header, 0); err != nil {
 		return err
 	}
 
 	totalTableSize := 0
+	fileSize := uint64(db.Size())
 
-	for i := 0; i < 256; i++ {
+	for i := 0; i < cdb.NumTables; i++ {
 		offset := i * 8
 		pos := binary.LittleEndian.Uint32(header[offset : offset+4])
 		nslots := binary.LittleEndian.Uint32(header[offset+4 : offset+8])
 
 		if nslots == 0 {
 			continue
+		}
+
+		tableBytes := uint64(nslots) * 8
+		if uint64(pos)+tableBytes > fileSize || tableBytes > uint64(math.MaxInt) {
+			return fmt.Errorf("invalid hash table %d", i)
 		}
 
 		st.tablesUsed++
@@ -139,15 +130,11 @@ func analyzeHashTables(db *cdb.CDB, st *stats) error {
 			st.maxTableSize = int(nslots)
 		}
 
-		// Read hash table
-		tableData := make([]byte, nslots*8)
+		tableData := make([]byte, tableBytes)
 		if _, err := file.ReadAt(tableData, int64(pos)); err != nil {
-			if err != io.EOF {
-				return err
-			}
+			return err
 		}
 
-		// Count used slots and collisions
 		usedInTable := 0
 		for j := uint32(0); j < nslots; j++ {
 			slotOffset := j * 8
@@ -157,8 +144,7 @@ func analyzeHashTables(db *cdb.CDB, st *stats) error {
 			if slotPos != 0 {
 				usedInTable++
 
-				// Calculate ideal slot position
-				idealSlot := (slotHash / 256) % nslots
+				idealSlot := (slotHash / uint32(cdb.NumTables)) % nslots
 				distance := int(j) - int(idealSlot)
 				if distance < 0 {
 					distance += int(nslots)
@@ -194,7 +180,7 @@ func printStats(st *stats) {
 	fmt.Printf("number of records: %d\n", st.numRecords)
 	fmt.Printf("key min/avg/max length: %d/%g/%d\n", st.minKeyLen, st.avgKeyLen, st.maxKeyLen)
 	fmt.Printf("val min/avg/max length: %d/%g/%d\n", st.minValueLen, st.avgValueLen, st.maxValueLen)
-	fmt.Printf("hash tables used: %d of 256\n", st.tablesUsed)
+	fmt.Printf("hash tables used: %d of %d\n", st.tablesUsed, cdb.NumTables)
 	fmt.Printf("hash table slots used: %d of %d\n", st.usedSlots, st.totalSlots)
 	fmt.Printf("hash table min/avg/max size: %d/%g/%d\n", st.minTableSize, st.avgTableSize, st.maxTableSize)
 	fmt.Printf("hash collisions: %d\n", st.collisions)

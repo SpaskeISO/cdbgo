@@ -1,6 +1,7 @@
 package cdb
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -277,5 +278,40 @@ func TestOpenInvalidFormat(t *testing.T) {
 	_, err := Open(invalidPath)
 	if err == nil {
 		t.Error("Expected error opening invalid file")
+	}
+}
+
+func TestGetCorruptLength(t *testing.T) {
+	dbPath := createTestDB(t, map[string]string{"key": "value"})
+
+	raw, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to read db: %v", err)
+	}
+
+	// Overwrite klen at the first record with a huge length.
+	binary.LittleEndian.PutUint32(raw[HeaderSize:HeaderSize+4], ^uint32(0))
+	if err := os.WriteFile(dbPath, raw, 0644); err != nil {
+		t.Fatalf("Failed to write corrupt db: %v", err)
+	}
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to open: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Get([]byte("key"))
+	if err == nil {
+		t.Fatal("expected error for corrupt record length")
+	}
+
+	it := NewIterator(db)
+	_, _, ok := it.Next()
+	if ok {
+		t.Fatal("expected iterator to stop on corrupt record")
+	}
+	if it.Err() == nil {
+		t.Fatal("expected iterator error")
 	}
 }

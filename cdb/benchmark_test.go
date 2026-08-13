@@ -51,7 +51,7 @@ func BenchmarkWrite(b *testing.B) {
 
 				for j := 0; j < size; j++ {
 					key := generateSequentialKeyB(b, j)
-					value := []byte(fmt.Sprintf("value_%d", j))
+					value := fmt.Appendf(nil, "value_%d", j)
 					if err := writer.Put(key, value); err != nil {
 						b.Fatal(err)
 					}
@@ -82,7 +82,7 @@ func BenchmarkRead(b *testing.B) {
 
 			for j := 0; j < size; j++ {
 				key := generateSequentialKeyB(b, j)
-				value := []byte(fmt.Sprintf("value_%d", j))
+				value := fmt.Appendf(nil, "value_%d", j)
 				if err := writer.Put(key, value); err != nil {
 					b.Fatal(err)
 				}
@@ -133,7 +133,7 @@ func BenchmarkReadRandom(b *testing.B) {
 			keys := make([][]byte, size)
 			for j := 0; j < size; j++ {
 				keys[j] = generateSequentialKeyB(b, j)
-				value := []byte(fmt.Sprintf("value_%d", j))
+				value := fmt.Appendf(nil, "value_%d", j)
 				if err := writer.Put(keys[j], value); err != nil {
 					b.Fatal(err)
 				}
@@ -184,7 +184,7 @@ func BenchmarkIteration(b *testing.B) {
 
 			for j := 0; j < size; j++ {
 				key := generateSequentialKeyB(b, j)
-				value := []byte(fmt.Sprintf("value_%d", j))
+				value := fmt.Appendf(nil, "value_%d", j)
 				if err := writer.Put(key, value); err != nil {
 					b.Fatal(err)
 				}
@@ -261,7 +261,7 @@ func TestCollisionAnalysis(t *testing.T) {
 
 			for j := 0; j < size; j++ {
 				key := generateSequentialKeyT(t, j)
-				value := []byte(fmt.Sprintf("value_%d", j))
+				value := fmt.Appendf(nil, "value_%d", j)
 				if err := writer.Put(key, value); err != nil {
 					t.Fatal(err)
 				}
