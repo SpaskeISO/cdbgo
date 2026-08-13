@@ -9,6 +9,7 @@ import (
 type Iterator struct {
 	cdb *CDB
 	pos int64
+	end int64
 	err error
 }
 
@@ -17,6 +18,7 @@ func NewIterator(cdb *CDB) *Iterator {
 	return &Iterator{
 		cdb: cdb,
 		pos: HeaderSize,
+		end: cdb.dataEnd,
 	}
 }
 
@@ -28,16 +30,11 @@ func (it *Iterator) Next() (key, value []byte, ok bool) {
 		return nil, nil, false
 	}
 
-	if err := it.skipHashTables(); err != nil {
-		it.err = err
+	if it.pos >= it.end {
 		return nil, nil, false
 	}
 
-	if it.pos >= it.cdb.size {
-		return nil, nil, false
-	}
-
-	if uint64(it.pos)+recordHeaderSize > uint64(it.cdb.size) {
+	if uint64(it.pos)+recordHeaderSize > uint64(it.end) {
 		it.err = ErrInvalidFormat
 		return nil, nil, false
 	}
@@ -50,28 +47,19 @@ func (it *Iterator) Next() (key, value []byte, ok bool) {
 
 	klen := binary.LittleEndian.Uint32(hdr[0:4])
 	vlen := binary.LittleEndian.Uint32(hdr[4:8])
-	recEnd := uint64(it.pos) + recordHeaderSize + uint64(klen) + uint64(vlen)
-	if recEnd < uint64(it.pos) || recEnd > uint64(it.cdb.size) {
+	payloadLen := uint64(klen) + uint64(vlen)
+	recEnd := uint64(it.pos) + recordHeaderSize + payloadLen
+	if recEnd < uint64(it.pos) || recEnd > uint64(it.end) {
 		it.err = ErrInvalidFormat
 		return nil, nil, false
 	}
 
-	key, err := allocBytes(uint64(klen))
+	buf, err := allocBytes(payloadLen)
 	if err != nil {
 		it.err = err
 		return nil, nil, false
 	}
-	if err := it.cdb.readAt(key, uint64(it.pos)+recordHeaderSize); err != nil {
-		it.err = err
-		return nil, nil, false
-	}
-
-	value, err = allocBytes(uint64(vlen))
-	if err != nil {
-		it.err = err
-		return nil, nil, false
-	}
-	if err := it.cdb.readAt(value, uint64(it.pos)+recordHeaderSize+uint64(klen)); err != nil {
+	if err := it.cdb.readAt(buf, uint64(it.pos)+recordHeaderSize); err != nil {
 		it.err = err
 		return nil, nil, false
 	}
@@ -81,32 +69,7 @@ func (it *Iterator) Next() (key, value []byte, ok bool) {
 		return nil, nil, false
 	}
 	it.pos = int64(recEnd)
-	return key, value, true
-}
-
-func (it *Iterator) skipHashTables() error {
-	for i := 0; i < NumTables; i++ {
-		table := &it.cdb.tables[i]
-		if table.pos == 0 || table.nslots == 0 {
-			continue
-		}
-
-		tableBytes := uint64(table.nslots) * slotSize
-		start := uint64(table.pos)
-		end := start + tableBytes
-		if end < start {
-			return ErrInvalidFormat
-		}
-
-		pos := uint64(it.pos)
-		if pos >= start && pos < end {
-			if end > uint64(math.MaxInt64) {
-				return ErrInvalidFormat
-			}
-			it.pos = int64(end)
-		}
-	}
-	return nil
+	return buf[:klen], buf[klen:], true
 }
 
 // Err returns any error that occurred during iteration
@@ -117,5 +80,6 @@ func (it *Iterator) Err() error {
 // Reset resets the iterator to the beginning of the database
 func (it *Iterator) Reset() {
 	it.pos = HeaderSize
+	it.end = it.cdb.dataEnd
 	it.err = nil
 }

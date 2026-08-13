@@ -38,9 +38,10 @@ type hashTable struct {
 
 // CDB represents an open CDB64 database
 type CDB struct {
-	file   *os.File
-	tables [NumTables]hashTable
-	size   int64
+	file    *os.File
+	tables  [NumTables]hashTable
+	size    int64
+	dataEnd int64 // first hash-table byte; records occupy [HeaderSize, dataEnd)
 }
 
 // Open opens a CDB64 database file for reading
@@ -83,8 +84,26 @@ func Open(filename string) (*CDB, error) {
 		cdb.tables[i].pos = binary.LittleEndian.Uint64(header[offset : offset+8])
 		cdb.tables[i].nslots = binary.LittleEndian.Uint64(header[offset+8 : offset+16])
 	}
+	cdb.dataEnd = cdb.computeDataEnd()
 
 	return cdb, nil
+}
+
+func (c *CDB) computeDataEnd() int64 {
+	end := c.size
+	for i := range c.tables {
+		t := &c.tables[i]
+		if t.nslots == 0 || t.pos == 0 {
+			continue
+		}
+		if t.pos > uint64(math.MaxInt64) {
+			continue
+		}
+		if pos := int64(t.pos); pos < end {
+			end = pos
+		}
+	}
+	return end
 }
 
 // Close closes the CDB64 database
@@ -149,39 +168,41 @@ func (c *CDB) readSlot(tablePos uint64, slot uint64) (slotHash, recPos uint64, e
 	return binary.LittleEndian.Uint64(buf[0:8]), binary.LittleEndian.Uint64(buf[8:16]), nil
 }
 
-func (c *CDB) readRecord(pos uint64) (key, value []byte, err error) {
+func (c *CDB) matchRecord(pos uint64, key []byte) ([]byte, bool, error) {
 	if pos < HeaderSize {
-		return nil, nil, ErrInvalidFormat
+		return nil, false, ErrInvalidFormat
 	}
 	var hdr [recordHeaderSize]byte
 	if err := c.readAt(hdr[:], pos); err != nil {
-		return nil, nil, fmt.Errorf("failed to read record: %w", err)
+		return nil, false, fmt.Errorf("failed to read record: %w", err)
 	}
 
 	klen := binary.LittleEndian.Uint64(hdr[0:8])
 	vlen := binary.LittleEndian.Uint64(hdr[8:16])
-	recEnd := pos + recordHeaderSize + klen + vlen
+	if klen != uint64(len(key)) {
+		return nil, false, nil
+	}
+
+	payloadLen := klen + vlen
+	if payloadLen < klen {
+		return nil, false, ErrInvalidFormat
+	}
+	recEnd := pos + recordHeaderSize + payloadLen
 	if recEnd < pos || recEnd > uint64(c.size) {
-		return nil, nil, ErrInvalidFormat
+		return nil, false, ErrInvalidFormat
 	}
 
-	key, err = allocBytes(klen)
+	buf, err := allocBytes(payloadLen)
 	if err != nil {
-		return nil, nil, err
+		return nil, false, err
 	}
-	if err := c.readAt(key, pos+recordHeaderSize); err != nil {
-		return nil, nil, fmt.Errorf("failed to read key: %w", err)
+	if err := c.readAt(buf, pos+recordHeaderSize); err != nil {
+		return nil, false, fmt.Errorf("failed to read record payload: %w", err)
 	}
-
-	value, err = allocBytes(vlen)
-	if err != nil {
-		return nil, nil, err
+	if !bytes.Equal(buf[:klen], key) {
+		return nil, false, nil
 	}
-	if err := c.readAt(value, pos+recordHeaderSize+klen); err != nil {
-		return nil, nil, fmt.Errorf("failed to read value: %w", err)
-	}
-
-	return key, value, nil
+	return buf[klen:], true, nil
 }
 
 // Get returns the first value associated with the given key
@@ -213,11 +234,11 @@ func (c *CDB) GetN(key []byte, n int) ([]byte, error) {
 			return nil, ErrNotFound
 		}
 		if slotHash == h {
-			recKey, recVal, err := c.readRecord(recPos)
+			recVal, ok, err := c.matchRecord(recPos, key)
 			if err != nil {
 				return nil, err
 			}
-			if bytes.Equal(recKey, key) {
+			if ok {
 				count++
 				if count == n {
 					return recVal, nil
@@ -251,11 +272,11 @@ func (c *CDB) GetAll(key []byte) ([][]byte, error) {
 			break
 		}
 		if slotHash == h {
-			recKey, recVal, err := c.readRecord(recPos)
+			recVal, ok, err := c.matchRecord(recPos, key)
 			if err != nil {
 				return nil, err
 			}
-			if bytes.Equal(recKey, key) {
+			if ok {
 				results = append(results, recVal)
 			}
 		}
